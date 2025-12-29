@@ -974,6 +974,7 @@ dependencies = [
 name = "soe-llms"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "eventsource-stream",
  "futures",
  "reqwest",
@@ -981,6 +982,7 @@ dependencies = [
  "serde_json",
  "thiserror",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]
