@@ -40,26 +40,21 @@ async fn main() {
 	let output = stream.completed_response.take().unwrap();
 	eprintln!("Final output: {:#?}", output);
 
-	req.input = output.output.into_iter().map(|o| o.into()).collect();
+	req.input
+		.extend(output.output.into_iter().map(|o| o.into()));
 
-	{
-		match req.input.last().unwrap() {
-			Input::CustomToolCall(ct) => {
-				assert_eq!(ct.name, "test_toolcall");
+	match req.input.last().unwrap() {
+		Input::CustomToolCall(ct) => {
+			assert_eq!(ct.name, "test_toolcall");
 
-				req.input.push(Input::CustomToolCallOutput(
-					CustomToolCallOutput {
-						id: None,
-						call_id: ct.call_id.clone(),
-						output: format!(
-							"The name you chose was '{}'",
-							ct.input
-						),
-					},
-				));
-			}
-			_ => panic!("unexpected, not a toolcall"),
+			req.input
+				.push(Input::CustomToolCallOutput(CustomToolCallOutput {
+					id: None,
+					call_id: ct.call_id.clone(),
+					output: format!("The name you chose was '{}'", ct.input),
+				}));
 		}
+		_ => panic!("unexpected, not a toolcall"),
 	}
 
 	// the last input should be a toolcall
@@ -71,4 +66,9 @@ async fn main() {
 
 	let output = stream.completed_response.take().unwrap();
 	eprintln!("Final output: {:#?}", output);
+
+	req.input
+		.extend(output.output.into_iter().map(|o| o.into()));
+
+	eprintln!("{:?}", req.input);
 }

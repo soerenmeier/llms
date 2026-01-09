@@ -21,7 +21,9 @@ impl SseResponse {
 
 		Self {
 			inner: StreamReader::new(
-				resp.bytes_stream().map_err(reqwest_to_io).boxed(),
+				resp.bytes_stream()
+					.map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+					.boxed(),
 			),
 			line: Some(String::with_capacity(1024)),
 		}
@@ -40,6 +42,15 @@ impl SseResponse {
 					return None;
 				}
 				Ok(_) => {}
+				// get original error back
+				Err(e) if e.kind() == io::ErrorKind::Other => {
+					let err = match e.downcast::<reqwest::Error>() {
+						Ok(e) => e.into(),
+						Err(e) => e.into(),
+					};
+
+					return Some(Err(err));
+				}
 				Err(err) => return Some(Err(err.into())),
 			}
 
@@ -54,8 +65,6 @@ impl SseResponse {
 			return None;
 		}
 
-		// eprintln!("received line {line}");
-
 		Some(serde_json::from_str(line).map_err(|e| {
 			eprintln!("received line {line}");
 			e.into()
@@ -67,10 +76,8 @@ impl SseResponse {
 pub enum SseError {
 	#[error("IO error: {0}")]
 	Io(#[from] io::Error),
+	#[error("Reqwest error: {0}")]
+	Reqwest(#[from] reqwest::Error),
 	#[error("JSON deserialization error: {0}")]
 	Json(#[from] serde_json::Error),
-}
-
-fn reqwest_to_io(err: reqwest::Error) -> io::Error {
-	io::Error::new(io::ErrorKind::Other, err)
 }
