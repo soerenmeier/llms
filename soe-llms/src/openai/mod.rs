@@ -3,11 +3,14 @@ use reqwest::{
 	header::{ACCEPT, HeaderValue},
 };
 use serde::{Deserialize, Serialize};
-use tracing::{error, trace, warn};
+use tracing::{trace, warn};
 
 use crate::{
 	llms::{self, LlmProvider, LlmResponseStream, LlmsError},
-	utils::sse::{SseError, SseResponse},
+	utils::{
+		default_parameters,
+		sse::{SseError, SseResponse},
+	},
 };
 
 pub struct OpenAi {
@@ -111,14 +114,24 @@ pub struct Request {
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Tool {
-	Custom { name: String, description: String },
+	Function {
+		name: String,
+		#[serde(skip_serializing_if = "Option::is_none")]
+		description: Option<String>,
+		/// standard JSON Schema object
+		/// (`{ "type": "object", "properties": { … }, "required": […] }`).
+		parameters: serde_json::Value,
+		strict: bool,
+	},
 }
 
 impl From<llms::Tool> for Tool {
 	fn from(tool: llms::Tool) -> Self {
-		Tool::Custom {
+		Tool::Function {
 			name: tool.name,
-			description: tool.description,
+			description: Some(tool.description).filter(|d| !d.is_empty()),
+			parameters: tool.parameters.unwrap_or_else(default_parameters),
+			strict: false,
 		}
 	}
 }
@@ -128,8 +141,8 @@ impl From<llms::Tool> for Tool {
 pub enum Input {
 	Message(InputMessage),
 	Reasoning(ReasoningItem),
-	CustomToolCall(CustomToolCall),
-	CustomToolCallOutput(CustomToolCallOutput),
+	FunctionCall(FunctionCall),
+	FunctionCallOutput(FunctionCallOutput),
 }
 
 impl From<OutputItem> for Input {
@@ -139,8 +152,8 @@ impl From<OutputItem> for Input {
 				Input::Message(InputMessage::Output(msg))
 			}
 			OutputItem::Reasoning(reasoning) => Input::Reasoning(reasoning),
-			OutputItem::CustomToolCall(tool_call) => {
-				Input::CustomToolCall(tool_call)
+			OutputItem::FunctionCall(tool_call) => {
+				Input::FunctionCall(tool_call)
 			}
 		}
 	}
@@ -155,18 +168,19 @@ impl From<llms::Input> for Input {
 					content,
 				})
 			}
-			llms::Input::ToolCall { id, input, name } => {
-				Input::CustomToolCall(CustomToolCall {
+			llms::Input::ToolCall { id, name, input } => {
+				Input::FunctionCall(FunctionCall {
 					id: None,
-					call_id: id.clone(),
-					input,
+					call_id: id,
 					name,
+					arguments: input.to_string(),
+					status: None,
 				})
 			}
 			llms::Input::ToolCallOutput { id, output } => {
-				Input::CustomToolCallOutput(CustomToolCallOutput {
+				Input::FunctionCallOutput(FunctionCallOutput {
 					id: None,
-					call_id: id.clone(),
+					call_id: id,
 					output,
 				})
 			}
@@ -193,7 +207,6 @@ pub enum Role {
 impl From<llms::Role> for Role {
 	fn from(role: llms::Role) -> Self {
 		match role {
-			llms::Role::Developer => Role::Developer,
 			llms::Role::User => Role::User,
 			llms::Role::Assistant => Role::Assistant,
 		}
@@ -295,17 +308,17 @@ pub enum Event {
 		content_index: u32,
 		text: String,
 	},
-	#[serde(rename = "response.custom_tool_call_input.delta")]
-	ResponseCustomToolCallInputDelta {
+	#[serde(rename = "response.function_call_arguments.delta")]
+	ResponseFunctionCallArgumentsDelta {
 		output_index: u32,
 		item_id: String,
 		delta: String,
 	},
-	#[serde(rename = "response.custom_tool_call_input.done")]
-	ResponseCustomToolCallInputDone {
+	#[serde(rename = "response.function_call_arguments.done")]
+	ResponseFunctionCallArgumentsDone {
 		output_index: u32,
 		item_id: String,
-		input: String,
+		arguments: String,
 	},
 	#[serde(rename = "error")]
 	ResponseError {
@@ -333,7 +346,11 @@ impl TryFrom<Response> for llms::Response {
 		}
 
 		Ok(llms::Response {
-			output: resp.output.into_iter().filter_map(Into::into).collect(),
+			output: resp
+				.output
+				.into_iter()
+				.filter_map(|o| Option::<llms::Output>::try_from(o).transpose())
+				.collect::<Result<_, Self::Error>>()?,
 		})
 	}
 }
@@ -355,23 +372,22 @@ pub enum ResponseStatus {
 pub enum OutputItem {
 	Message(OutputMessage),
 	Reasoning(ReasoningItem),
-	CustomToolCall(CustomToolCall),
+	FunctionCall(FunctionCall),
 }
 
-impl From<OutputItem> for Option<llms::Output> {
-	fn from(item: OutputItem) -> Self {
+impl TryFrom<OutputItem> for Option<llms::Output> {
+	type Error = OpenAiError;
+
+	fn try_from(item: OutputItem) -> Result<Self, OpenAiError> {
 		match item {
 			OutputItem::Message(msg) => {
-				if !matches!(msg.status, OutputStatus::Completed) {
-					error!("message output item is not completed: {:?}", msg);
-					return None;
-				}
+				assert!(matches!(msg.status, OutputStatus::Completed));
 
 				if msg.content.len() > 1 {
 					warn!("output message has multiple items");
 				}
 
-				Some(llms::Output::Text {
+				Ok(Some(llms::Output::Text {
 					content: msg
 						.content
 						.into_iter()
@@ -385,14 +401,25 @@ impl From<OutputItem> for Option<llms::Output> {
 							_ => None,
 						})
 						.collect(),
-				})
+				}))
 			}
-			OutputItem::Reasoning(_) => None,
-			OutputItem::CustomToolCall(ct) => Some(llms::Output::ToolCall {
-				id: ct.call_id,
-				name: ct.name,
-				input: ct.input,
-			}),
+			OutputItem::Reasoning(_) => Ok(None),
+			OutputItem::FunctionCall(fc) => {
+				assert!(matches!(fc.status, Some(OutputStatus::Completed)));
+
+				let input =
+					serde_json::from_str(&fc.arguments).map_err(|e| {
+						OpenAiError::InvalidLlmResponse(format!(
+							"failed to parse function call arguments: {e}"
+						))
+					})?;
+
+				Ok(Some(llms::Output::ToolCall {
+					id: fc.call_id,
+					name: fc.name,
+					input,
+				}))
+			}
 		}
 	}
 }
@@ -436,15 +463,17 @@ pub enum ReasoningSummary {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct CustomToolCall {
+pub struct FunctionCall {
 	pub id: Option<String>,
 	pub call_id: String,
-	pub input: String,
 	pub name: String,
+	/// JSON string of the arguments chosen by the model.
+	pub arguments: String,
+	pub status: Option<OutputStatus>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct CustomToolCallOutput {
+pub struct FunctionCallOutput {
 	#[serde(skip_serializing_if = "Option::is_none")]
 	pub id: Option<String>,
 	pub call_id: String,
@@ -496,6 +525,12 @@ impl LlmResponseStream for ResponseStream {
 					.try_into()
 					.map(llms::ResponseEvent::Completed)
 					.map_err(Into::into),
+				Event::ResponseError { code, message } => {
+					return Some(Err(LlmsError::Response {
+						status: StatusCode::OK,
+						body: format!("{code:?}: {message}",),
+					}));
+				}
 				_ => continue,
 			});
 		}

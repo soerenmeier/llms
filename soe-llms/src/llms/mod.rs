@@ -2,7 +2,9 @@ pub mod error;
 
 pub use error::LlmsError;
 
-use crate::openai;
+use serde_json::Value;
+
+use crate::{anthropic, openai};
 
 #[derive(Debug, Clone)]
 pub struct Request {
@@ -22,7 +24,7 @@ pub enum Input {
 	ToolCall {
 		id: String,
 		name: String,
-		input: String,
+		input: Value,
 	},
 	ToolCallOutput {
 		id: String,
@@ -46,31 +48,66 @@ impl From<Output> for Input {
 
 #[derive(Debug, Clone, Copy)]
 pub enum Role {
-	Developer,
 	User,
 	Assistant,
 }
 
 #[derive(Debug, Clone, Copy)]
+#[non_exhaustive]
 pub enum Model {
 	Gpt5,
 	Gpt5Mini,
 	Gpt5Nano,
 	Gpt5_2,
+	ClaudeOpus4_6,
+	ClaudeSonnet4_6,
+	ClaudeHaiku4_5,
 }
 
 #[derive(Debug, Clone)]
 pub struct Tool {
 	pub name: String,
 	pub description: String,
+	/// JSON Schema object for the tool's input parameters, e.g.:
+	/// ```json
+	/// {
+	///   "type": "object",
+	///   "properties": {
+	///     "location": { "type": "string", "description": "City name" }
+	///   },
+	///   "required": ["location"]
+	/// }
+	/// ```
+	// None = { "type": "object", "properties": {} }
+	pub parameters: Option<Value>,
 }
 
+#[derive(Debug, Clone, Default)]
+#[non_exhaustive]
 pub struct LlmsConfig {
 	pub openai_api_key: Option<String>,
+	pub anthropic_api_key: Option<String>,
+}
+
+impl LlmsConfig {
+	pub fn new() -> Self {
+		Self::default()
+	}
+
+	pub fn openai(mut self, api_key: String) -> Self {
+		self.openai_api_key = Some(api_key);
+		self
+	}
+
+	pub fn anthropic(mut self, api_key: String) -> Self {
+		self.anthropic_api_key = Some(api_key);
+		self
+	}
 }
 
 struct LlmProviders {
 	open_ai: Option<openai::OpenAi>,
+	anthropic: Option<anthropic::Anthropic>,
 }
 
 pub struct Llms {
@@ -82,6 +119,9 @@ impl Llms {
 		Self {
 			inner: LlmProviders {
 				open_ai: config.openai_api_key.map(openai::OpenAi::new),
+				anthropic: config
+					.anthropic_api_key
+					.map(anthropic::Anthropic::new),
 			},
 		}
 	}
@@ -94,6 +134,14 @@ impl Llms {
 			Model::Gpt5 | Model::Gpt5Mini | Model::Gpt5Nano | Model::Gpt5_2 => {
 				let llm = self.inner.open_ai.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("OpenAI".into())
+				})?;
+				LlmProvider::request(llm, req).await.map(Into::into)
+			}
+			Model::ClaudeOpus4_6
+			| Model::ClaudeSonnet4_6
+			| Model::ClaudeHaiku4_5 => {
+				let llm = self.inner.anthropic.as_ref().ok_or_else(|| {
+					LlmsError::LlmNotConfigured("Anthropic".into())
 				})?;
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
@@ -121,7 +169,6 @@ pub enum ResponseEvent {
 #[non_exhaustive]
 pub struct Response {
 	pub output: Vec<Output>,
-	// add usage?
 }
 
 #[derive(Debug)]
@@ -132,7 +179,7 @@ pub enum Output {
 	ToolCall {
 		id: String,
 		name: String,
-		input: String,
+		input: Value,
 	},
 }
 
@@ -144,6 +191,7 @@ pub struct ResponseStream {
 #[derive(Debug)]
 enum RespStreamInner {
 	OpenAi(openai::ResponseStream),
+	Anthropic(anthropic::ResponseStream),
 }
 
 impl ResponseStream {
@@ -152,6 +200,7 @@ impl ResponseStream {
 
 		match &mut self.inner {
 			OpenAi(stream) => LlmResponseStream::next(stream).await,
+			Anthropic(stream) => LlmResponseStream::next(stream).await,
 		}
 	}
 }
@@ -160,6 +209,14 @@ impl From<openai::ResponseStream> for ResponseStream {
 	fn from(stream: openai::ResponseStream) -> Self {
 		Self {
 			inner: RespStreamInner::OpenAi(stream),
+		}
+	}
+}
+
+impl From<anthropic::ResponseStream> for ResponseStream {
+	fn from(stream: anthropic::ResponseStream) -> Self {
+		Self {
+			inner: RespStreamInner::Anthropic(stream),
 		}
 	}
 }
