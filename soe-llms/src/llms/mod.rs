@@ -4,7 +4,7 @@ pub use error::LlmsError;
 
 use serde_json::Value;
 
-use crate::{anthropic, google, openai, xai};
+use crate::{anthropic, google, mistral, openai, xai};
 
 #[derive(Debug, Clone)]
 pub struct Request {
@@ -80,6 +80,11 @@ pub enum Model {
 	Grok4_1Fast,
 	Grok4_1FastNonReasoning,
 	GrokCodeFast1,
+	MistralLarge3,
+	MistralMedium3_1,
+	MistralSmall3_2,
+	Devstral2,
+	MagistralMedium1_2,
 }
 
 #[derive(Debug, Clone)]
@@ -107,6 +112,7 @@ pub struct LlmsConfig {
 	pub anthropic_api_key: Option<String>,
 	pub google_api_key: Option<String>,
 	pub xai_api_key: Option<String>,
+	pub mistral_api_key: Option<String>,
 }
 
 impl LlmsConfig {
@@ -114,23 +120,28 @@ impl LlmsConfig {
 		Self::default()
 	}
 
-	pub fn openai(mut self, api_key: String) -> Self {
-		self.openai_api_key = Some(api_key);
+	pub fn openai(mut self, api_key: impl Into<Option<String>>) -> Self {
+		self.openai_api_key = api_key.into();
 		self
 	}
 
-	pub fn anthropic(mut self, api_key: String) -> Self {
-		self.anthropic_api_key = Some(api_key);
+	pub fn anthropic(mut self, api_key: impl Into<Option<String>>) -> Self {
+		self.anthropic_api_key = api_key.into();
 		self
 	}
 
-	pub fn google(mut self, api_key: String) -> Self {
-		self.google_api_key = Some(api_key);
+	pub fn google(mut self, api_key: impl Into<Option<String>>) -> Self {
+		self.google_api_key = api_key.into();
 		self
 	}
 
-	pub fn xai(mut self, api_key: String) -> Self {
-		self.xai_api_key = Some(api_key);
+	pub fn xai(mut self, api_key: impl Into<Option<String>>) -> Self {
+		self.xai_api_key = api_key.into();
+		self
+	}
+
+	pub fn mistral(mut self, api_key: impl Into<Option<String>>) -> Self {
+		self.mistral_api_key = api_key.into();
 		self
 	}
 }
@@ -140,6 +151,7 @@ struct LlmProviders {
 	anthropic: Option<anthropic::Anthropic>,
 	google: Option<google::Google>,
 	xai: Option<xai::XAi>,
+	mistral: Option<mistral::Mistral>,
 }
 
 pub struct Llms {
@@ -156,6 +168,7 @@ impl Llms {
 					.map(anthropic::Anthropic::new),
 				google: config.google_api_key.map(google::Google::new),
 				xai: config.xai_api_key.map(xai::XAi::new),
+				mistral: config.mistral_api_key.map(mistral::Mistral::new),
 			},
 		}
 	}
@@ -194,6 +207,16 @@ impl Llms {
 					})?;
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
+			Model::MistralLarge3
+			| Model::MistralMedium3_1
+			| Model::MistralSmall3_2
+			| Model::Devstral2
+			| Model::MagistralMedium1_2 => {
+				let llm = self.inner.mistral.as_ref().ok_or_else(|| {
+					LlmsError::LlmNotConfigured("Mistral".into())
+				})?;
+				LlmProvider::request(llm, req).await.map(Into::into)
+			}
 		}
 	}
 }
@@ -210,7 +233,11 @@ pub(crate) trait LlmResponseStream {
 
 #[derive(Debug)]
 pub enum ResponseEvent {
-	TextDelta { content: String },
+	/// Note, on some providers the last TextDelta may not be emitted
+	/// but returned as part of the final Completed event instead.
+	TextDelta {
+		content: String,
+	},
 	Completed(Response),
 }
 
@@ -251,6 +278,7 @@ enum RespStreamInner {
 	Anthropic(anthropic::ResponseStream),
 	Google(google::ResponseStream),
 	XAi(xai::ResponseStream),
+	Mistral(mistral::ResponseStream),
 }
 
 impl ResponseStream {
@@ -262,6 +290,7 @@ impl ResponseStream {
 			Anthropic(stream) => LlmResponseStream::next(stream).await,
 			Google(stream) => LlmResponseStream::next(stream).await,
 			XAi(stream) => LlmResponseStream::next(stream).await,
+			Mistral(stream) => LlmResponseStream::next(stream).await,
 		}
 	}
 }
@@ -294,6 +323,14 @@ impl From<xai::ResponseStream> for ResponseStream {
 	fn from(stream: xai::ResponseStream) -> Self {
 		Self {
 			inner: RespStreamInner::XAi(stream),
+		}
+	}
+}
+
+impl From<mistral::ResponseStream> for ResponseStream {
+	fn from(stream: mistral::ResponseStream) -> Self {
+		Self {
+			inner: RespStreamInner::Mistral(stream),
 		}
 	}
 }

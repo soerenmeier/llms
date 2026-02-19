@@ -1,5 +1,3 @@
-use std::mem;
-
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -269,10 +267,8 @@ pub struct StreamChunk {
 }
 
 #[derive(Debug, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
 pub struct Candidate {
 	pub content: Option<CandidateContent>,
-	pub finish_reason: Option<FinishReason>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -302,18 +298,6 @@ pub enum CandidatePart {
 	},
 }
 
-#[derive(Debug, Deserialize, Clone, PartialEq, Eq)]
-#[serde(rename_all = "SCREAMING_SNAKE_CASE")]
-pub enum FinishReason {
-	Stop,
-	MaxTokens,
-	Safety,
-	Recitation,
-	Other,
-	#[serde(other)]
-	Unknown,
-}
-
 #[derive(Debug, Deserialize, Clone)]
 pub struct ApiErrorBody {
 	pub code: Option<u32>,
@@ -325,6 +309,8 @@ pub struct ApiErrorBody {
 pub enum GoogleError {
 	#[error("Invalid LLM response: {0}")]
 	InvalidLlmResponse(String),
+	#[error("No output in response")]
+	NoOutput,
 	#[error("Response error: status {status}, body {body}")]
 	ResponseError { status: StatusCode, body: String },
 	#[error("API error {code}: {message}")]
@@ -339,6 +325,10 @@ impl From<GoogleError> for LlmsError {
 			GoogleError::InvalidLlmResponse(msg) => LlmsError::Response {
 				status: StatusCode::OK,
 				body: msg,
+			},
+			GoogleError::NoOutput => LlmsError::Response {
+				status: StatusCode::OK,
+				body: "no output in response".into(),
 			},
 			GoogleError::ResponseError { status, body } => {
 				LlmsError::Response { status, body }
@@ -355,7 +345,9 @@ impl From<GoogleError> for LlmsError {
 
 pub struct ResponseStream {
 	inner: SseResponse,
-	text_acc: String,
+	/// Accumulated text across all content deltas. `None` until the first
+	/// non-empty content delta arrives.
+	text_acc: Option<String>,
 	tool_calls: Vec<llms::Output>,
 	done: bool,
 }
@@ -372,7 +364,7 @@ impl ResponseStream {
 	fn new(inner: SseResponse) -> Self {
 		Self {
 			inner,
-			text_acc: String::new(),
+			text_acc: None,
 			tool_calls: Vec::new(),
 			done: false,
 		}
@@ -388,19 +380,21 @@ impl ResponseStream {
 		}
 	}
 
-	fn build_response(&mut self) -> llms::Response {
+	fn build_response(&mut self) -> Result<llms::Response, GoogleError> {
 		let mut output: Vec<llms::Output> =
 			Vec::with_capacity(self.tool_calls.len() + 1 /* text */);
 
-		if !self.text_acc.is_empty() {
-			output.push(llms::Output::Text {
-				content: mem::take(&mut self.text_acc),
-			});
+		if let Some(text) = self.text_acc.take() {
+			output.push(llms::Output::Text { content: text });
 		}
 
 		output.extend(self.tool_calls.drain(..));
 
-		llms::Response { output }
+		if output.is_empty() {
+			return Err(GoogleError::NoOutput);
+		}
+
+		Ok(llms::Response { output })
 	}
 }
 
@@ -415,11 +409,12 @@ impl LlmResponseStream for ResponseStream {
 				Some(Ok(c)) => c,
 				Some(Err(e)) => return Some(Err(e.into())),
 				None => {
-					// Stream ended without a finish_reason — treat as complete.
 					self.done = true;
-					return Some(Ok(llms::ResponseEvent::Completed(
-						self.build_response(),
-					)));
+					let response = self
+						.build_response()
+						.map(llms::ResponseEvent::Completed)
+						.map_err(Into::into);
+					return Some(response);
 				}
 			};
 
@@ -437,15 +432,20 @@ impl LlmResponseStream for ResponseStream {
 				continue;
 			};
 
-			let mut text_delta = String::new();
+			let mut text_delta: Option<String> = None;
 
 			if let Some(content) = candidate.content {
 				for part in content.parts {
 					match part {
-						CandidatePart::Text { text } => {
-							text_delta.push_str(&text);
-							self.text_acc.push_str(&text);
+						CandidatePart::Text { text } if !text.is_empty() => {
+							self.text_acc
+								.get_or_insert_with(String::new)
+								.push_str(&text);
+							text_delta
+								.get_or_insert_with(String::new)
+								.push_str(&text);
 						}
+						CandidatePart::Text { .. } => {}
 						CandidatePart::FunctionCall {
 							function_call,
 							thought_signature,
@@ -464,19 +464,9 @@ impl LlmResponseStream for ResponseStream {
 				}
 			}
 
-			// On the final chunk, emit Completed (which carries all
-			// accumulated text + tool calls) regardless of whether this chunk
-			// also contained a text delta — the delta is already in text_acc.
-			if candidate.finish_reason.is_some() {
-				self.done = true;
-				return Some(Ok(llms::ResponseEvent::Completed(
-					self.build_response(),
-				)));
-			}
-
-			if !text_delta.is_empty() {
+			if let Some(text) = text_delta {
 				return Some(Ok(llms::ResponseEvent::TextDelta {
-					content: text_delta,
+					content: text,
 				}));
 			}
 		}

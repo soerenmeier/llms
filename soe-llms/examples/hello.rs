@@ -11,6 +11,10 @@ struct ToolInput {
 	name: String,
 }
 
+fn read_env(path: &str) -> Option<String> {
+	fs::read_to_string(path).ok().map(|s| s.trim().to_string())
+}
+
 #[tokio::main]
 async fn main() {
 	tracing_subscriber::fmt()
@@ -19,36 +23,17 @@ async fn main() {
 
 	let llms = Llms::new(
 		LlmsConfig::new()
-			.openai(
-				fs::read_to_string("../.env.openai")
-					.unwrap()
-					.trim()
-					.to_string(),
-			)
-			.anthropic(
-				fs::read_to_string("../.env.anthropic")
-					.unwrap()
-					.trim()
-					.to_string(),
-			)
-			.google(
-				fs::read_to_string("../.env.google")
-					.unwrap()
-					.trim()
-					.to_string(),
-			)
-			.xai(
-				fs::read_to_string("../.env.xai")
-					.unwrap()
-					.trim()
-					.to_string(),
-			),
+			.openai(read_env("../.env.openai"))
+			.anthropic(read_env("../.env.anthropic"))
+			.google(read_env("../.env.google"))
+			.xai(read_env("../.env.xai"))
+			.mistral(read_env("../.env.mistral")),
 	);
 
 	let mut req = Request {
 		input: vec![],
 		instructions: "You are a helpful assistant.".into(),
-		model: Model::GrokCodeFast1,
+		model: Model::MagistralMedium1_2,
 		user_id: "example_script".into(),
 		tools: vec![Tool {
 			name: "test_toolcall".into(),
@@ -120,6 +105,10 @@ async fn main() {
 		}
 	}
 
+	if matches!(req.input.last(), Some(Input::Text { .. })) {
+		panic!("Expected the last output to be a ToolCallOutput");
+	}
+
 	let mut stream = llms.request(&req).await.unwrap();
 
 	let mut response = None;
@@ -137,5 +126,5 @@ async fn main() {
 	req.input
 		.extend(response.output.into_iter().map(Into::into));
 
-	eprintln!("{:#?}", req.input);
+	eprintln!("{:?}", req.input);
 }

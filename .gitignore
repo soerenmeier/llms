@@ -3,3 +3,4 @@
 /.env.anthropic
 /.env.google
 /.env.xai
+/.env.mistral

@@ -11,12 +11,12 @@ use crate::{
 	},
 };
 
-pub struct XAi {
+pub struct Mistral {
 	pub client: Client,
 	pub api_key: String,
 }
 
-impl XAi {
+impl Mistral {
 	pub fn new(api_key: String) -> Self {
 		Self {
 			client: Client::new(),
@@ -27,7 +27,7 @@ impl XAi {
 	pub async fn request(
 		&self,
 		req: &Request,
-	) -> Result<ResponseStream, XAiError> {
+	) -> Result<ResponseStream, MistralError> {
 		#[derive(Debug, Serialize)]
 		struct ApiReq<'a> {
 			model: &'a str,
@@ -48,7 +48,7 @@ impl XAi {
 
 		let resp = self
 			.client
-			.post("https://api.x.ai/v1/chat/completions")
+			.post("https://api.mistral.ai/v1/chat/completions")
 			.bearer_auth(&self.api_key)
 			.json(&api_req)
 			.send()
@@ -57,14 +57,14 @@ impl XAi {
 		if !resp.status().is_success() {
 			let status = resp.status();
 			let body = resp.text().await?;
-			return Err(XAiError::ResponseError { status, body });
+			return Err(MistralError::ResponseError { status, body });
 		}
 
 		Ok(ResponseStream::new(SseResponse::new(resp)))
 	}
 }
 
-impl LlmProvider for XAi {
+impl LlmProvider for Mistral {
 	type Stream = ResponseStream;
 
 	async fn request(
@@ -72,11 +72,11 @@ impl LlmProvider for XAi {
 		req: &llms::Request,
 	) -> Result<Self::Stream, LlmsError> {
 		let model = match req.model {
-			llms::Model::Grok4_1Fast => XAiModel::Grok4_1Fast,
-			llms::Model::Grok4_1FastNonReasoning => {
-				XAiModel::Grok4_1FastNonReasoning
-			}
-			llms::Model::GrokCodeFast1 => XAiModel::GrokCodeFast1,
+			llms::Model::MistralLarge3 => MistralModel::Large3,
+			llms::Model::MistralMedium3_1 => MistralModel::Medium3_1,
+			llms::Model::MistralSmall3_2 => MistralModel::Small3_2,
+			llms::Model::Devstral2 => MistralModel::Devstral2,
+			llms::Model::MagistralMedium1_2 => MistralModel::MagistralMedium1_2,
 			m => unreachable!("unsupported model: {m:?}"),
 		};
 
@@ -102,23 +102,27 @@ impl LlmProvider for XAi {
 
 pub struct Request {
 	pub messages: Vec<ApiMessage>,
-	pub model: XAiModel,
+	pub model: MistralModel,
 	pub tools: Vec<ApiTool>,
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum XAiModel {
-	Grok4_1Fast,
-	Grok4_1FastNonReasoning,
-	GrokCodeFast1,
+pub enum MistralModel {
+	Large3,
+	Medium3_1,
+	Small3_2,
+	Devstral2,
+	MagistralMedium1_2,
 }
 
-impl XAiModel {
+impl MistralModel {
 	pub fn as_str(&self) -> &'static str {
 		match self {
-			XAiModel::Grok4_1Fast => "grok-4-1-fast-reasoning",
-			XAiModel::Grok4_1FastNonReasoning => "grok-4-1-fast-non-reasoning",
-			XAiModel::GrokCodeFast1 => "grok-code-fast-1",
+			MistralModel::Large3 => "mistral-large-2512",
+			MistralModel::Medium3_1 => "mistral-medium-2508",
+			MistralModel::Small3_2 => "mistral-small-2506",
+			MistralModel::Devstral2 => "devstral-2512",
+			MistralModel::MagistralMedium1_2 => "magistral-medium-2509",
 		}
 	}
 }
@@ -231,8 +235,48 @@ pub struct ChunkChoice {
 
 #[derive(Debug, Deserialize)]
 pub struct Delta {
-	pub content: Option<String>,
+	pub content: Option<DeltaContent>,
 	pub tool_calls: Option<Vec<ToolCallDelta>>,
+}
+
+/// `content` is a plain string on standard models, or an array of typed blocks
+/// on Magistral reasoning models (which interleave `"thinking"` and `"text"`).
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+pub enum DeltaContent {
+	Text(String),
+	Blocks(Vec<ContentBlock>),
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ContentBlock {
+	Text { text: String },
+	Thinking { thinking: Vec<ThinkingBlock> },
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ThinkingBlock {
+	pub text: String,
+}
+
+impl DeltaContent {
+	/// Extracts the text, ignoring `"thinking"` and any other non-text blocks.
+	/// Returns `None` if the result is empty.
+	pub fn into_text(self) -> Option<String> {
+		let text = match self {
+			DeltaContent::Text(s) => s,
+			DeltaContent::Blocks(blocks) => blocks
+				.into_iter()
+				.filter_map(|b| match b {
+					ContentBlock::Text { text } => Some(text),
+					ContentBlock::Thinking { .. } => None,
+				})
+				.collect(),
+		};
+
+		Some(text).filter(|t| !t.is_empty())
+	}
 }
 
 #[derive(Debug, Deserialize)]
@@ -251,7 +295,7 @@ pub struct ToolCallFunctionDelta {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum XAiError {
+pub enum MistralError {
 	#[error("Invalid LLM response: {0}")]
 	InvalidLlmResponse(String),
 	#[error("No output in response")]
@@ -262,32 +306,30 @@ pub enum XAiError {
 	ReqwestError(#[from] reqwest::Error),
 }
 
-impl From<XAiError> for LlmsError {
-	fn from(e: XAiError) -> Self {
+impl From<MistralError> for LlmsError {
+	fn from(e: MistralError) -> Self {
 		match e {
-			XAiError::InvalidLlmResponse(msg) => LlmsError::Response {
+			MistralError::InvalidLlmResponse(msg) => LlmsError::Response {
 				status: StatusCode::OK,
 				body: msg,
 			},
-			XAiError::NoOutput => LlmsError::Response {
+			MistralError::NoOutput => LlmsError::Response {
 				status: StatusCode::OK,
 				body: "no output in response".into(),
 			},
-			XAiError::ResponseError { status, body } => {
+			MistralError::ResponseError { status, body } => {
 				LlmsError::Response { status, body }
 			}
-			XAiError::ReqwestError(e) => LlmsError::Reqwest(e),
+			MistralError::ReqwestError(e) => LlmsError::Reqwest(e),
 		}
 	}
 }
 
-impl From<SseError> for XAiError {
+impl From<SseError> for MistralError {
 	fn from(e: SseError) -> Self {
-		// Round-trip through LlmsError — we don't have a direct variant for
-		// SSE errors here, but this conversion is only needed internally.
 		match e {
-			SseError::Reqwest(e) => XAiError::ReqwestError(e),
-			other => XAiError::InvalidLlmResponse(other.to_string()),
+			SseError::Reqwest(e) => MistralError::ReqwestError(e),
+			other => MistralError::InvalidLlmResponse(other.to_string()),
 		}
 	}
 }
@@ -328,7 +370,7 @@ impl ResponseStream {
 		}
 	}
 
-	fn build_response(&mut self) -> Result<llms::Response, XAiError> {
+	fn build_response(&mut self) -> Result<llms::Response, MistralError> {
 		let mut output =
 			Vec::with_capacity(self.tool_calls.len() + 1 /* text */);
 
@@ -338,7 +380,7 @@ impl ResponseStream {
 
 		for tc in self.tool_calls.drain(..) {
 			let input = serde_json::from_str(&tc.arguments).map_err(|e| {
-				XAiError::InvalidLlmResponse(format!(
+				MistralError::InvalidLlmResponse(format!(
 					"invalid tool call arguments JSON for '{}': {e}",
 					tc.name
 				))
@@ -353,7 +395,7 @@ impl ResponseStream {
 		}
 
 		if output.is_empty() {
-			return Err(XAiError::NoOutput);
+			return Err(MistralError::NoOutput);
 		}
 
 		Ok(llms::Response { output })
@@ -380,7 +422,7 @@ impl LlmResponseStream for ResponseStream {
 				}
 			};
 
-			trace!("xai chunk: {chunk:?}");
+			trace!("mistral chunk: {chunk:?}");
 
 			let choice = match chunk.choices.into_iter().next() {
 				Some(c) => c,
@@ -411,7 +453,9 @@ impl LlmResponseStream for ResponseStream {
 				}
 			}
 
-			if let Some(text) = choice.delta.content.filter(|t| !t.is_empty()) {
+			if let Some(text) =
+				choice.delta.content.and_then(DeltaContent::into_text)
+			{
 				self.text.get_or_insert_with(String::new).push_str(&text);
 				return Some(Ok(llms::ResponseEvent::TextDelta {
 					content: text,
