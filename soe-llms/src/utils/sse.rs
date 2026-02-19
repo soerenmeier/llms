@@ -1,11 +1,13 @@
-use std::io;
+use std::{fmt, io};
 
 use bytes::Bytes;
-use futures::{Stream, StreamExt as _, TryStreamExt as _, stream::BoxStream};
-use reqwest::{Response, StatusCode, header::HeaderMap};
+use futures::{StreamExt as _, TryStreamExt as _, stream::BoxStream};
+use reqwest::Response;
 use serde::de::DeserializeOwned;
 use tokio::io::AsyncBufReadExt;
 use tokio_util::io::StreamReader;
+
+use crate::llms::LlmsError;
 
 pub struct SseResponse {
 	inner: StreamReader<BoxStream<'static, Result<Bytes, io::Error>>, Bytes>,
@@ -72,6 +74,12 @@ impl SseResponse {
 	}
 }
 
+impl fmt::Debug for SseResponse {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct("SseResponse").finish()
+	}
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum SseError {
 	#[error("IO error: {0}")]
@@ -80,4 +88,14 @@ pub enum SseError {
 	Reqwest(#[from] reqwest::Error),
 	#[error("JSON deserialization error: {0}")]
 	Json(#[from] serde_json::Error),
+}
+
+impl From<SseError> for LlmsError {
+	fn from(value: SseError) -> Self {
+		match value {
+			SseError::Io(e) => LlmsError::Io(e),
+			SseError::Reqwest(e) => LlmsError::Reqwest(e),
+			SseError::Json(e) => LlmsError::Json(e),
+		}
+	}
 }

@@ -1,10 +1,18 @@
+use std::io;
+
 use reqwest::StatusCode;
 
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum LlmsError {
+	#[error("Llm not configured: {0}")]
+	LlmNotConfigured(String),
+	#[error("JSON deserialization error: {0}")]
+	Json(#[from] serde_json::Error),
 	#[error("Response error: status {status}, body {body}")]
-	ResponseError { status: StatusCode, body: String },
+	Response { status: StatusCode, body: String },
 	#[error("Reqwest error: {0}")]
-	ReqwestError(#[from] reqwest::Error),
+	Reqwest(#[from] reqwest::Error),
+	#[error("IO error: {0}")]
+	Io(#[from] io::Error),
 }

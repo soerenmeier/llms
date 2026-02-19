@@ -1,74 +1,92 @@
 use std::fs;
 
-use soe_llms::openai::{
-	CustomToolCallOutput, Input, InputMessage, OpenAi, OpenAiModel, Request,
-	Role, Tool,
+use soe_llms::{
+	Input, Llms, LlmsConfig, Model, Output, Request, ResponseEvent, Role, Tool,
 };
 
 #[tokio::main]
 async fn main() {
-	let open_ai = OpenAi::new(
-		fs::read_to_string("../.env.openai")
-			.unwrap()
-			.trim()
-			.to_string(),
-	);
+	tracing_subscriber::fmt()
+		.with_env_filter("soe_llms=info,warn")
+		.init();
+
+	let llms = Llms::new(LlmsConfig {
+		openai_api_key: Some(
+			fs::read_to_string("../.env.openai")
+				.unwrap()
+				.trim()
+				.to_string(),
+		),
+	});
 
 	let mut req = Request {
 		input: vec![],
 		instructions: "You are a helpful assistant.".into(),
-		model: OpenAiModel::Gpt5,
-		prompt_cache_key: "example_script".into(),
-		safety_identifier: "example_script".into(),
-		tools: vec![Tool::Custom {
+		model: Model::Gpt5Nano,
+		user_id: "example_script".into(),
+		tools: vec![Tool {
 			name: "test_toolcall".into(),
 			description: "A test toolcall for demonstration purposes.".into(),
 		}],
 	};
 
-	req.input = vec![Input::Message(InputMessage::Input {
-					role: Role::User,
-					content: "Please call test toolcall with a random name and then tell what that name has as meaning.".into(),
-				})];
+	req.input = vec![Input::Text {
+		role: Role::User,
+		content: "Please call test toolcall with a random name \
+						and then tell me what meaning that name has."
+			.into(),
+	}];
 
-	let mut stream = open_ai.request(&req).await.unwrap();
+	let mut stream = llms.request(&req).await.unwrap();
 
+	let mut response = None;
 	while let Some(thing) = stream.next().await {
-		println!("{:?}", thing);
-	}
-
-	let output = stream.completed_response.take().unwrap();
-	eprintln!("Final output: {:#?}", output);
-
-	req.input
-		.extend(output.output.into_iter().map(|o| o.into()));
-
-	match req.input.last().unwrap() {
-		Input::CustomToolCall(ct) => {
-			assert_eq!(ct.name, "test_toolcall");
-
-			req.input
-				.push(Input::CustomToolCallOutput(CustomToolCallOutput {
-					id: None,
-					call_id: ct.call_id.clone(),
-					output: format!("The name you chose was '{}'", ct.input),
-				}));
+		match thing.unwrap() {
+			ResponseEvent::TextDelta { content } => eprint!("{}", content),
+			ResponseEvent::Completed(resp) => response = Some(resp),
 		}
-		_ => panic!("unexpected, not a toolcall"),
+	}
+	eprint!("\n");
+
+	let response = response.unwrap();
+	eprintln!("Final output: {:?}", response);
+
+	for output in response.output {
+		match output {
+			Output::ToolCall { name, input, id } => {
+				assert_eq!(name, "test_toolcall");
+
+				req.input.push(Input::ToolCall {
+					id: id.clone(),
+					name,
+					input: input.clone(),
+				});
+
+				req.input.push(Input::ToolCallOutput {
+					id,
+					output: format!("The name you chose was '{}'", input),
+				});
+			}
+			o => req.input.push(o.into()),
+		}
 	}
 
-	// the last input should be a toolcall
-	let mut stream = open_ai.request(&req).await.unwrap();
+	let mut stream = llms.request(&req).await.unwrap();
 
+	let mut response = None;
 	while let Some(thing) = stream.next().await {
-		println!("{:?}", thing);
+		match thing.unwrap() {
+			ResponseEvent::TextDelta { content } => eprint!("{}", content),
+			ResponseEvent::Completed(resp) => response = Some(resp),
+		}
 	}
+	eprint!("\n");
 
-	let output = stream.completed_response.take().unwrap();
-	eprintln!("Final output: {:#?}", output);
+	let response = response.unwrap();
+	eprintln!("Final output: {:?}", response);
 
 	req.input
-		.extend(output.output.into_iter().map(|o| o.into()));
+		.extend(response.output.into_iter().map(Into::into));
 
-	eprintln!("{:?}", req.input);
+	eprintln!("{:#?}", req.input);
 }

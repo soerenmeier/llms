@@ -1,12 +1,14 @@
-use eventsource_stream::Eventsource;
-use futures::StreamExt;
 use reqwest::{
 	Client, StatusCode,
-	header::{ACCEPT, CONTENT_TYPE, HeaderValue},
+	header::{ACCEPT, HeaderValue},
 };
 use serde::{Deserialize, Serialize};
+use tracing::{error, trace, warn};
 
-use crate::utils::sse::{SseError, SseResponse};
+use crate::{
+	llms::{self, LlmProvider, LlmResponseStream, LlmsError},
+	utils::sse::{SseError, SseResponse},
+};
 
 pub struct OpenAi {
 	pub client: Client,
@@ -46,7 +48,7 @@ impl OpenAi {
 			stream: true,
 		};
 
-		eprintln!("req {}", serde_json::to_string(&req).unwrap());
+		trace!("{:?}", req);
 
 		let resp = self
 			.client
@@ -64,13 +66,35 @@ impl OpenAi {
 			return Err(OpenAiError::ResponseError { status, body });
 		}
 
-		let mut stream = SseResponse::new(resp);
+		Ok(ResponseStream::new(SseResponse::new(resp)))
+	}
+}
 
-		// while let Some(thing) = stream.next::<Event>().await {
-		// 	println!("{:?}", thing);
-		// }
+impl LlmProvider for OpenAi {
+	type Stream = ResponseStream;
 
-		Ok(ResponseStream::new(stream))
+	async fn request(
+		&self,
+		req: &llms::Request,
+	) -> Result<Self::Stream, LlmsError> {
+		let model = match &req.model {
+			llms::Model::Gpt5 => OpenAiModel::Gpt5,
+			llms::Model::Gpt5Mini => OpenAiModel::Gpt5Mini,
+			llms::Model::Gpt5Nano => OpenAiModel::Gpt5Nano,
+			llms::Model::Gpt5_2 => OpenAiModel::Gpt5_2,
+			m => unreachable!("unsupported model: {m:?}"),
+		};
+
+		self.request(&Request {
+			input: req.input.iter().cloned().map(Into::into).collect(),
+			instructions: req.instructions.clone(),
+			model,
+			prompt_cache_key: req.user_id.clone(),
+			safety_identifier: req.user_id.clone(),
+			tools: req.tools.iter().cloned().map(Into::into).collect(),
+		})
+		.await
+		.map_err(Into::into)
 	}
 }
 
@@ -88,6 +112,15 @@ pub struct Request {
 #[serde(tag = "type", rename_all = "lowercase")]
 pub enum Tool {
 	Custom { name: String, description: String },
+}
+
+impl From<llms::Tool> for Tool {
+	fn from(tool: llms::Tool) -> Self {
+		Tool::Custom {
+			name: tool.name,
+			description: tool.description,
+		}
+	}
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -113,6 +146,34 @@ impl From<OutputItem> for Input {
 	}
 }
 
+impl From<llms::Input> for Input {
+	fn from(input: llms::Input) -> Self {
+		match input {
+			llms::Input::Text { role, content } => {
+				Input::Message(InputMessage::Input {
+					role: role.into(),
+					content,
+				})
+			}
+			llms::Input::ToolCall { id, input, name } => {
+				Input::CustomToolCall(CustomToolCall {
+					id: None,
+					call_id: id.clone(),
+					input,
+					name,
+				})
+			}
+			llms::Input::ToolCallOutput { id, output } => {
+				Input::CustomToolCallOutput(CustomToolCallOutput {
+					id: None,
+					call_id: id.clone(),
+					output,
+				})
+			}
+		}
+	}
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(untagged)]
 pub enum InputMessage {
@@ -129,24 +190,60 @@ pub enum Role {
 	Assistant,
 }
 
+impl From<llms::Role> for Role {
+	fn from(role: llms::Role) -> Self {
+		match role {
+			llms::Role::Developer => Role::Developer,
+			llms::Role::User => Role::User,
+			llms::Role::Assistant => Role::Assistant,
+		}
+	}
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum OpenAiError {
+	#[error("Invalid LLM response: {0}")]
+	InvalidLlmResponse(String),
 	#[error("Response error: status {status}, body {body}")]
 	ResponseError { status: StatusCode, body: String },
 	#[error("Reqwest error: {0}")]
 	ReqwestError(#[from] reqwest::Error),
 }
 
+impl From<OpenAiError> for LlmsError {
+	fn from(e: OpenAiError) -> Self {
+		match e {
+			OpenAiError::InvalidLlmResponse(msg) => LlmsError::Response {
+				status: StatusCode::OK,
+				body: msg,
+			},
+			OpenAiError::ResponseError { status, body } => {
+				LlmsError::Response { status, body }
+			}
+			OpenAiError::ReqwestError(e) => LlmsError::Reqwest(e),
+		}
+	}
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub enum OpenAiModel {
 	#[serde(rename = "gpt-5")]
 	Gpt5,
+	#[serde(rename = "gpt-5-mini")]
+	Gpt5Mini,
+	#[serde(rename = "gpt-5-nano")]
+	Gpt5Nano,
+	#[serde(rename = "gpt-5.2")]
+	Gpt5_2,
 }
 
 impl OpenAiModel {
 	pub fn as_str(&self) -> &'static str {
 		match self {
 			OpenAiModel::Gpt5 => "gpt-5",
+			OpenAiModel::Gpt5Mini => "gpt-5-mini",
+			OpenAiModel::Gpt5Nano => "gpt-5-nano",
+			OpenAiModel::Gpt5_2 => "gpt-5.2",
 		}
 	}
 }
@@ -224,6 +321,23 @@ pub struct Response {
 	pub usage: Option<ResponseUsage>,
 }
 
+impl TryFrom<Response> for llms::Response {
+	type Error = OpenAiError;
+
+	fn try_from(resp: Response) -> Result<Self, Self::Error> {
+		if !matches!(resp.status, ResponseStatus::Completed) {
+			return Err(OpenAiError::InvalidLlmResponse(format!(
+				"response status is not completed: {:?}",
+				resp.status
+			)));
+		}
+
+		Ok(llms::Response {
+			output: resp.output.into_iter().filter_map(Into::into).collect(),
+		})
+	}
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum ResponseStatus {
@@ -242,6 +356,45 @@ pub enum OutputItem {
 	Message(OutputMessage),
 	Reasoning(ReasoningItem),
 	CustomToolCall(CustomToolCall),
+}
+
+impl From<OutputItem> for Option<llms::Output> {
+	fn from(item: OutputItem) -> Self {
+		match item {
+			OutputItem::Message(msg) => {
+				if !matches!(msg.status, OutputStatus::Completed) {
+					error!("message output item is not completed: {:?}", msg);
+					return None;
+				}
+
+				if msg.content.len() > 1 {
+					warn!("output message has multiple items");
+				}
+
+				Some(llms::Output::Text {
+					content: msg
+						.content
+						.into_iter()
+						.filter_map(|c| match c {
+							OutputMessageContent::OutputText { text } => {
+								Some(text)
+							}
+							OutputMessageContent::Refusal { refusal } => {
+								Some(refusal)
+							}
+							_ => None,
+						})
+						.collect(),
+				})
+			}
+			OutputItem::Reasoning(_) => None,
+			OutputItem::CustomToolCall(ct) => Some(llms::Output::ToolCall {
+				id: ct.call_id,
+				name: ct.name,
+				input: ct.input,
+			}),
+		}
+	}
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -284,7 +437,7 @@ pub enum ReasoningSummary {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CustomToolCall {
-	pub id: String,
+	pub id: Option<String>,
 	pub call_id: String,
 	pub input: String,
 	pub name: String,
@@ -305,32 +458,46 @@ pub struct ResponseUsage {
 	pub total_tokens: u32,
 }
 
+#[derive(Debug)]
 pub struct ResponseStream {
 	inner: SseResponse,
-	pub completed_response: Option<Response>,
 }
 
 impl ResponseStream {
 	fn new(inner: SseResponse) -> Self {
-		Self {
-			inner,
-			completed_response: None,
-		}
+		Self { inner }
 	}
 
 	pub async fn next(&mut self) -> Option<Result<Event, SseError>> {
-		let ev = match self.inner.next().await {
-			Some(Ok(ev)) => ev,
-			a => return a,
-		};
-
-		match &ev {
-			Event::ResponseCompleted { response } => {
-				self.completed_response = Some(response.clone());
+		match self.inner.next().await {
+			Some(Ok(ev)) => {
+				trace!("new event: {ev:?}");
+				Some(Ok(ev))
 			}
-			_ => {}
+			a => return a,
 		}
+	}
+}
 
-		Some(Ok(ev))
+impl LlmResponseStream for ResponseStream {
+	async fn next(&mut self) -> Option<Result<llms::ResponseEvent, LlmsError>> {
+		loop {
+			let ev = match self.next().await {
+				Some(Ok(ev)) => ev,
+				Some(Err(e)) => return Some(Err(e.into())),
+				None => return None,
+			};
+
+			break Some(match ev {
+				Event::ResponseOutputTextDelta { delta, .. } => {
+					Ok(llms::ResponseEvent::TextDelta { content: delta })
+				}
+				Event::ResponseCompleted { response } => response
+					.try_into()
+					.map(llms::ResponseEvent::Completed)
+					.map_err(Into::into),
+				_ => continue,
+			});
+		}
 	}
 }
