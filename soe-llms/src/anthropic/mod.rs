@@ -127,7 +127,9 @@ impl From<llms::Input> for ApiMessage {
 				role: role.into(),
 				content: ApiMessageContent::Text(content),
 			},
-			llms::Input::ToolCall { id, name, input } => ApiMessage {
+			llms::Input::ToolCall {
+				id, name, input, ..
+			} => ApiMessage {
 				role: ApiRole::Assistant,
 				content: ApiMessageContent::Blocks(vec![
 					ApiContentBlock::ToolUse { id, name, input },
@@ -393,7 +395,12 @@ impl ResponseStream {
 								"invalid tool input JSON for '{name}': {e}"
 							))
 						})?;
-					output.push(llms::Output::ToolCall { id, name, input });
+					output.push(llms::Output::ToolCall {
+						id,
+						name,
+						input,
+						context: None,
+					});
 				}
 			}
 		}

@@ -168,15 +168,15 @@ impl From<llms::Input> for Input {
 					content,
 				})
 			}
-			llms::Input::ToolCall { id, name, input } => {
-				Input::FunctionCall(FunctionCall {
-					id: None,
-					call_id: id,
-					name,
-					arguments: input.to_string(),
-					status: None,
-				})
-			}
+			llms::Input::ToolCall {
+				id, name, input, ..
+			} => Input::FunctionCall(FunctionCall {
+				id: None,
+				call_id: id,
+				name,
+				arguments: input.to_string(),
+				status: None,
+			}),
 			llms::Input::ToolCallOutput { id, output } => {
 				Input::FunctionCallOutput(FunctionCallOutput {
 					id: None,
@@ -418,6 +418,7 @@ impl TryFrom<OutputItem> for Option<llms::Output> {
 					id: fc.call_id,
 					name: fc.name,
 					input,
+					context: None,
 				}))
 			}
 		}

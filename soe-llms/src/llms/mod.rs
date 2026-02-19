@@ -4,7 +4,7 @@ pub use error::LlmsError;
 
 use serde_json::Value;
 
-use crate::{anthropic, openai};
+use crate::{anthropic, google, openai};
 
 #[derive(Debug, Clone)]
 pub struct Request {
@@ -25,6 +25,11 @@ pub enum Input {
 		id: String,
 		name: String,
 		input: Value,
+		/// Opaque, provider-specific context that must be passed back with this
+		/// tool call until the corresponding [`Input::ToolCallOutput`] has been
+		/// added to the conversation history. After that point it can safely be
+		/// discarded — the provider only validates it within the current turn.
+		context: Option<String>,
 	},
 	ToolCallOutput {
 		id: String,
@@ -39,9 +44,17 @@ impl From<Output> for Input {
 				role: Role::Assistant,
 				content,
 			},
-			Output::ToolCall { id, name, input } => {
-				Input::ToolCall { id, name, input }
-			}
+			Output::ToolCall {
+				id,
+				name,
+				input,
+				context,
+			} => Input::ToolCall {
+				id,
+				name,
+				input,
+				context,
+			},
 		}
 	}
 }
@@ -62,6 +75,8 @@ pub enum Model {
 	ClaudeOpus4_6,
 	ClaudeSonnet4_6,
 	ClaudeHaiku4_5,
+	GeminiPro3,
+	GeminiFlash3,
 }
 
 #[derive(Debug, Clone)]
@@ -87,6 +102,7 @@ pub struct Tool {
 pub struct LlmsConfig {
 	pub openai_api_key: Option<String>,
 	pub anthropic_api_key: Option<String>,
+	pub google_api_key: Option<String>,
 }
 
 impl LlmsConfig {
@@ -103,11 +119,17 @@ impl LlmsConfig {
 		self.anthropic_api_key = Some(api_key);
 		self
 	}
+
+	pub fn google(mut self, api_key: String) -> Self {
+		self.google_api_key = Some(api_key);
+		self
+	}
 }
 
 struct LlmProviders {
 	open_ai: Option<openai::OpenAi>,
 	anthropic: Option<anthropic::Anthropic>,
+	google: Option<google::Google>,
 }
 
 pub struct Llms {
@@ -122,6 +144,7 @@ impl Llms {
 				anthropic: config
 					.anthropic_api_key
 					.map(anthropic::Anthropic::new),
+				google: config.google_api_key.map(google::Google::new),
 			},
 		}
 	}
@@ -142,6 +165,12 @@ impl Llms {
 			| Model::ClaudeHaiku4_5 => {
 				let llm = self.inner.anthropic.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("Anthropic".into())
+				})?;
+				LlmProvider::request(llm, req).await.map(Into::into)
+			}
+			Model::GeminiPro3 | Model::GeminiFlash3 => {
+				let llm = self.inner.google.as_ref().ok_or_else(|| {
+					LlmsError::LlmNotConfigured("Google".into())
 				})?;
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
@@ -180,6 +209,14 @@ pub enum Output {
 		id: String,
 		name: String,
 		input: Value,
+		/// Opaque, provider-specific context to be round-tripped into
+		/// [`Input::ToolCall::context`] until the corresponding
+		/// [`Input::ToolCallOutput`] is added. After that it can be discarded.
+		///
+		/// Currently populated by Gemini 3 thinking models (`thoughtSignature`)
+		/// to preserve reasoning state across multi-step tool use within a
+		/// single turn. All other providers set this to `None`.
+		context: Option<String>,
 	},
 }
 
@@ -192,6 +229,7 @@ pub struct ResponseStream {
 enum RespStreamInner {
 	OpenAi(openai::ResponseStream),
 	Anthropic(anthropic::ResponseStream),
+	Google(google::ResponseStream),
 }
 
 impl ResponseStream {
@@ -201,6 +239,7 @@ impl ResponseStream {
 		match &mut self.inner {
 			OpenAi(stream) => LlmResponseStream::next(stream).await,
 			Anthropic(stream) => LlmResponseStream::next(stream).await,
+			Google(stream) => LlmResponseStream::next(stream).await,
 		}
 	}
 }
@@ -217,6 +256,14 @@ impl From<anthropic::ResponseStream> for ResponseStream {
 	fn from(stream: anthropic::ResponseStream) -> Self {
 		Self {
 			inner: RespStreamInner::Anthropic(stream),
+		}
+	}
+}
+
+impl From<google::ResponseStream> for ResponseStream {
+	fn from(stream: google::ResponseStream) -> Self {
+		Self {
+			inner: RespStreamInner::Google(stream),
 		}
 	}
 }

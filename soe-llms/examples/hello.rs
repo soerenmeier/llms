@@ -30,13 +30,19 @@ async fn main() {
 					.unwrap()
 					.trim()
 					.to_string(),
+			)
+			.google(
+				fs::read_to_string("../.env.google")
+					.unwrap()
+					.trim()
+					.to_string(),
 			),
 	);
 
 	let mut req = Request {
 		input: vec![],
 		instructions: "You are a helpful assistant.".into(),
-		model: Model::ClaudeHaiku4_5,
+		model: Model::GeminiPro3,
 		user_id: "example_script".into(),
 		tools: vec![Tool {
 			name: "test_toolcall".into(),
@@ -79,13 +85,19 @@ async fn main() {
 
 	for output in response.output {
 		match output {
-			Output::ToolCall { name, input, id } => {
+			Output::ToolCall {
+				name,
+				input,
+				id,
+				context,
+			} => {
 				assert_eq!(name, "test_toolcall");
 
 				req.input.push(Input::ToolCall {
 					id: id.clone(),
 					name,
 					input: input.clone(),
+					context,
 				});
 
 				let input: ToolInput = serde_json::from_value(input).unwrap();

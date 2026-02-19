@@ -1,3 +1,4 @@
 /target
 /.env.openai
 /.env.anthropic
+/.env.google
