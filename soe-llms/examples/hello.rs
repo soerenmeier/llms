@@ -36,13 +36,19 @@ async fn main() {
 					.unwrap()
 					.trim()
 					.to_string(),
+			)
+			.xai(
+				fs::read_to_string("../.env.xai")
+					.unwrap()
+					.trim()
+					.to_string(),
 			),
 	);
 
 	let mut req = Request {
 		input: vec![],
 		instructions: "You are a helpful assistant.".into(),
-		model: Model::GeminiPro3,
+		model: Model::GrokCodeFast1,
 		user_id: "example_script".into(),
 		tools: vec![Tool {
 			name: "test_toolcall".into(),

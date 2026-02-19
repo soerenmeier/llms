@@ -4,7 +4,7 @@ pub use error::LlmsError;
 
 use serde_json::Value;
 
-use crate::{anthropic, google, openai};
+use crate::{anthropic, google, openai, xai};
 
 #[derive(Debug, Clone)]
 pub struct Request {
@@ -77,6 +77,9 @@ pub enum Model {
 	ClaudeHaiku4_5,
 	GeminiPro3,
 	GeminiFlash3,
+	Grok4_1Fast,
+	Grok4_1FastNonReasoning,
+	GrokCodeFast1,
 }
 
 #[derive(Debug, Clone)]
@@ -103,6 +106,7 @@ pub struct LlmsConfig {
 	pub openai_api_key: Option<String>,
 	pub anthropic_api_key: Option<String>,
 	pub google_api_key: Option<String>,
+	pub xai_api_key: Option<String>,
 }
 
 impl LlmsConfig {
@@ -124,12 +128,18 @@ impl LlmsConfig {
 		self.google_api_key = Some(api_key);
 		self
 	}
+
+	pub fn xai(mut self, api_key: String) -> Self {
+		self.xai_api_key = Some(api_key);
+		self
+	}
 }
 
 struct LlmProviders {
 	open_ai: Option<openai::OpenAi>,
 	anthropic: Option<anthropic::Anthropic>,
 	google: Option<google::Google>,
+	xai: Option<xai::XAi>,
 }
 
 pub struct Llms {
@@ -145,6 +155,7 @@ impl Llms {
 					.anthropic_api_key
 					.map(anthropic::Anthropic::new),
 				google: config.google_api_key.map(google::Google::new),
+				xai: config.xai_api_key.map(xai::XAi::new),
 			},
 		}
 	}
@@ -172,6 +183,15 @@ impl Llms {
 				let llm = self.inner.google.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("Google".into())
 				})?;
+				LlmProvider::request(llm, req).await.map(Into::into)
+			}
+			Model::Grok4_1Fast
+			| Model::Grok4_1FastNonReasoning
+			| Model::GrokCodeFast1 => {
+				let llm =
+					self.inner.xai.as_ref().ok_or_else(|| {
+						LlmsError::LlmNotConfigured("xAI".into())
+					})?;
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
 		}
@@ -230,6 +250,7 @@ enum RespStreamInner {
 	OpenAi(openai::ResponseStream),
 	Anthropic(anthropic::ResponseStream),
 	Google(google::ResponseStream),
+	XAi(xai::ResponseStream),
 }
 
 impl ResponseStream {
@@ -240,6 +261,7 @@ impl ResponseStream {
 			OpenAi(stream) => LlmResponseStream::next(stream).await,
 			Anthropic(stream) => LlmResponseStream::next(stream).await,
 			Google(stream) => LlmResponseStream::next(stream).await,
+			XAi(stream) => LlmResponseStream::next(stream).await,
 		}
 	}
 }
@@ -264,6 +286,14 @@ impl From<google::ResponseStream> for ResponseStream {
 	fn from(stream: google::ResponseStream) -> Self {
 		Self {
 			inner: RespStreamInner::Google(stream),
+		}
+	}
+}
+
+impl From<xai::ResponseStream> for ResponseStream {
+	fn from(stream: xai::ResponseStream) -> Self {
+		Self {
+			inner: RespStreamInner::XAi(stream),
 		}
 	}
 }

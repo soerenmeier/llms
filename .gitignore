@@ -2,3 +2,4 @@
 /.env.openai
 /.env.anthropic
 /.env.google
+/.env.xai
