@@ -6,7 +6,7 @@ authors = ["Sören Meier <soeren@meierlabs.ch>"]
 repository = "https://github.com/soerenmeier/llms"
 edition = "2024"
 license = "MIT OR Apache-2.0"
-keywords = ["openai", "llms", "language-models", "chatgpt", "claude", "gemini", "mistral"]
+keywords = ["openai", "llms", "gemini", "claude", "mistral"]
 categories = ["api-bindings", "web-programming", "asynchronous"]
 
 [dependencies]
