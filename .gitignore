@@ -4,3 +4,4 @@
 /.env.google
 /.env.xai
 /.env.mistral
+/.env.publicai

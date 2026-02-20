@@ -4,7 +4,7 @@ pub use error::LlmsError;
 
 use serde_json::Value;
 
-use crate::{anthropic, google, mistral, openai, xai};
+use crate::{anthropic, google, mistral, openai, publicai, xai};
 
 #[derive(Debug, Clone)]
 pub struct Request {
@@ -85,6 +85,8 @@ pub enum Model {
 	MistralSmall3_2,
 	Devstral2,
 	MagistralMedium1_2,
+	// At the moment tool calls are not supported
+	Apertus8bInstruct,
 }
 
 #[derive(Debug, Clone)]
@@ -113,6 +115,7 @@ pub struct LlmsConfig {
 	pub google_api_key: Option<String>,
 	pub xai_api_key: Option<String>,
 	pub mistral_api_key: Option<String>,
+	pub publicai_api_key: Option<String>,
 }
 
 impl LlmsConfig {
@@ -144,6 +147,11 @@ impl LlmsConfig {
 		self.mistral_api_key = api_key.into();
 		self
 	}
+
+	pub fn publicai(mut self, api_key: impl Into<Option<String>>) -> Self {
+		self.publicai_api_key = api_key.into();
+		self
+	}
 }
 
 struct LlmProviders {
@@ -152,6 +160,7 @@ struct LlmProviders {
 	google: Option<google::Google>,
 	xai: Option<xai::XAi>,
 	mistral: Option<mistral::Mistral>,
+	publicai: Option<publicai::PublicAi>,
 }
 
 pub struct Llms {
@@ -169,6 +178,7 @@ impl Llms {
 				google: config.google_api_key.map(google::Google::new),
 				xai: config.xai_api_key.map(xai::XAi::new),
 				mistral: config.mistral_api_key.map(mistral::Mistral::new),
+				publicai: config.publicai_api_key.map(publicai::PublicAi::new),
 			},
 		}
 	}
@@ -214,6 +224,12 @@ impl Llms {
 			| Model::MagistralMedium1_2 => {
 				let llm = self.inner.mistral.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("Mistral".into())
+				})?;
+				LlmProvider::request(llm, req).await.map(Into::into)
+			}
+			Model::Apertus8bInstruct => {
+				let llm = self.inner.publicai.as_ref().ok_or_else(|| {
+					LlmsError::LlmNotConfigured("PublicAI".into())
 				})?;
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
@@ -279,6 +295,7 @@ enum RespStreamInner {
 	Google(google::ResponseStream),
 	XAi(xai::ResponseStream),
 	Mistral(mistral::ResponseStream),
+	PublicAi(publicai::ResponseStream),
 }
 
 impl ResponseStream {
@@ -291,6 +308,7 @@ impl ResponseStream {
 			Google(stream) => LlmResponseStream::next(stream).await,
 			XAi(stream) => LlmResponseStream::next(stream).await,
 			Mistral(stream) => LlmResponseStream::next(stream).await,
+			PublicAi(stream) => LlmResponseStream::next(stream).await,
 		}
 	}
 }
@@ -331,6 +349,14 @@ impl From<mistral::ResponseStream> for ResponseStream {
 	fn from(stream: mistral::ResponseStream) -> Self {
 		Self {
 			inner: RespStreamInner::Mistral(stream),
+		}
+	}
+}
+
+impl From<publicai::ResponseStream> for ResponseStream {
+	fn from(stream: publicai::ResponseStream) -> Self {
+		Self {
+			inner: RespStreamInner::PublicAi(stream),
 		}
 	}
 }

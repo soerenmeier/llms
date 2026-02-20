@@ -27,13 +27,14 @@ async fn main() {
 			.anthropic(read_env("../.env.anthropic"))
 			.google(read_env("../.env.google"))
 			.xai(read_env("../.env.xai"))
-			.mistral(read_env("../.env.mistral")),
+			.mistral(read_env("../.env.mistral"))
+			.publicai(read_env("../.env.publicai")),
 	);
 
 	let mut req = Request {
 		input: vec![],
 		instructions: "You are a helpful assistant.".into(),
-		model: Model::MagistralMedium1_2,
+		model: Model::Apertus8bInstruct,
 		user_id: "example_script".into(),
 		tools: vec![Tool {
 			name: "test_toolcall".into(),
