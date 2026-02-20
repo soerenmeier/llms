@@ -1031,7 +1031,7 @@ dependencies = [
 
 [[package]]
 name = "soe-llms"
-version = "0.1.0"
+version = "0.0.1"
 dependencies = [
  "bytes",
  "eventsource-stream",
