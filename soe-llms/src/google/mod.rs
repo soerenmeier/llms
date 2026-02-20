@@ -1,3 +1,5 @@
+use std::fmt;
+
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -14,6 +16,7 @@ use crate::{
 const BASE_URL: &str =
 	"https://generativelanguage.googleapis.com/v1beta/models";
 
+#[derive(Clone)]
 pub struct Google {
 	pub client: Client,
 	pub api_key: String,
@@ -84,6 +87,12 @@ impl Google {
 		}
 
 		Ok(ResponseStream::new(SseResponse::new(resp)))
+	}
+}
+
+impl fmt::Debug for Google {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct("Google").field("api_key", &"***").finish()
 	}
 }
 

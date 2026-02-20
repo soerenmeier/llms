@@ -1,3 +1,5 @@
+use std::fmt;
+
 use reqwest::{
 	Client, StatusCode,
 	header::{ACCEPT, HeaderValue},
@@ -13,6 +15,7 @@ use crate::{
 	},
 };
 
+#[derive(Clone)]
 pub struct OpenAi {
 	pub client: Client,
 	pub api_key: String,
@@ -70,6 +73,12 @@ impl OpenAi {
 		}
 
 		Ok(ResponseStream::new(SseResponse::new(resp)))
+	}
+}
+
+impl fmt::Debug for OpenAi {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct("OpenAi").field("api_key", &"***").finish()
 	}
 }
 

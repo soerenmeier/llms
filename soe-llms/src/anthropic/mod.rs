@@ -1,3 +1,5 @@
+use std::fmt;
+
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -14,6 +16,7 @@ use crate::{
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const DEFAULT_MAX_TOKENS: u32 = 8096;
 
+#[derive(Clone)]
 pub struct Anthropic {
 	pub client: Client,
 	pub api_key: String,
@@ -70,6 +73,14 @@ impl Anthropic {
 		}
 
 		Ok(ResponseStream::new(SseResponse::new(resp)))
+	}
+}
+
+impl fmt::Debug for Anthropic {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct("Anthropic")
+			.field("api_key", &"***")
+			.finish()
 	}
 }
 

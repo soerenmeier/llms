@@ -1,3 +1,5 @@
+use std::fmt;
+
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -11,6 +13,7 @@ use crate::{
 	},
 };
 
+#[derive(Clone)]
 pub struct XAi {
 	pub client: Client,
 	pub api_key: String,
@@ -61,6 +64,12 @@ impl XAi {
 		}
 
 		Ok(ResponseStream::new(SseResponse::new(resp)))
+	}
+}
+
+impl fmt::Debug for XAi {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct("XAi").field("api_key", &"***").finish()
 	}
 }
 

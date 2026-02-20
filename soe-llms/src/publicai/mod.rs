@@ -1,3 +1,5 @@
+use std::fmt;
+
 use reqwest::{
 	Client, StatusCode,
 	header::{HeaderValue, USER_AGENT},
@@ -14,6 +16,7 @@ use crate::{
 	},
 };
 
+#[derive(Clone)]
 pub struct PublicAi {
 	pub client: Client,
 	pub api_key: String,
@@ -71,6 +74,12 @@ impl PublicAi {
 		}
 
 		Ok(ResponseStream::new(SseResponse::new(resp)))
+	}
+}
+
+impl fmt::Debug for PublicAi {
+	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+		f.debug_struct("PublicAi").field("api_key", &"***").finish()
 	}
 }
 

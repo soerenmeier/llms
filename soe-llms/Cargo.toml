@@ -1,7 +1,7 @@
 [package]
 name = "soe-llms"
 description = "An opiniated library for interacting with LLMS"
-version = "0.0.1"
+version = "0.0.2"
 authors = ["Sören Meier <soeren@meierlabs.ch>"]
 repository = "https://github.com/soerenmeier/llms"
 edition = "2024"

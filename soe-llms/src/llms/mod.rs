@@ -154,6 +154,7 @@ impl LlmsConfig {
 	}
 }
 
+#[derive(Debug, Clone)]
 struct LlmProviders {
 	open_ai: Option<openai::OpenAi>,
 	anthropic: Option<anthropic::Anthropic>,
@@ -163,6 +164,7 @@ struct LlmProviders {
 	publicai: Option<publicai::PublicAi>,
 }
 
+#[derive(Debug, Clone)]
 pub struct Llms {
 	inner: LlmProviders,
 }
