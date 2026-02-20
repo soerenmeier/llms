@@ -1,7 +1,13 @@
 [package]
 name = "soe-llms"
+description = "An opiniated library for interacting with LLMS"
 version = "0.0.1"
+authors = ["Sören Meier <soeren@meierlabs.ch>"]
+repository = "https://github.com/soerenmeier/llms"
 edition = "2024"
+license = "MIT OR Apache-2.0"
+keywords = ["openai", "llms", "language-models", "chatgpt", "claude", "gemini", "mistral"]
+categories = ["api-bindings", "web-programming", "asynchronous"]
 
 [dependencies]
 bytes = "1.11.0"
