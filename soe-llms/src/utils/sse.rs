@@ -4,14 +4,16 @@ use bytes::Bytes;
 use futures::{StreamExt as _, TryStreamExt as _, stream::BoxStream};
 use reqwest::Response;
 use serde::de::DeserializeOwned;
-use tokio::io::AsyncBufReadExt;
+use tokio::io::{AsyncBufReadExt, Lines};
 use tokio_util::io::StreamReader;
+use tracing::error;
 
 use crate::llms::LlmsError;
 
 pub struct SseResponse {
-	inner: StreamReader<BoxStream<'static, Result<Bytes, io::Error>>, Bytes>,
-	line: Option<String>,
+	inner: Lines<
+		StreamReader<BoxStream<'static, Result<Bytes, io::Error>>, Bytes>,
+	>,
 }
 
 impl SseResponse {
@@ -26,24 +28,24 @@ impl SseResponse {
 				resp.bytes_stream()
 					.map_err(|e| io::Error::new(io::ErrorKind::Other, e))
 					.boxed(),
-			),
-			line: Some(String::with_capacity(1024)),
+			)
+			.lines(),
 		}
 	}
 
+	/// Get the next event from the stream.
+	///
+	/// # Cancel safety
+	///
+	/// This method is cancellation safe.
 	pub async fn next<T: DeserializeOwned>(
 		&mut self,
 	) -> Option<Result<T, SseError>> {
-		let line = self.line.as_mut()?;
-		line.clear();
-
+		let mut line_owned;
 		let line = loop {
-			match self.inner.read_line(line).await {
-				Ok(0) => {
-					self.line = None;
-					return None;
-				}
-				Ok(_) => {}
+			match self.inner.next_line().await {
+				Ok(Some(line)) => line_owned = line,
+				Ok(None) => return None,
 				// get original error back
 				Err(e) if e.kind() == io::ErrorKind::Other => {
 					let err = match e.downcast::<reqwest::Error>() {
@@ -56,11 +58,11 @@ impl SseResponse {
 				Err(err) => return Some(Err(err.into())),
 			}
 
-			if let Some(line) = line.strip_prefix("data:") {
+			if let Some(line) = line_owned.strip_prefix("data:") {
 				break line.trim();
 			}
 
-			line.clear();
+			// ignore lines which don't start with "data:"
 		};
 
 		if line == "[DONE]" {
@@ -68,7 +70,7 @@ impl SseResponse {
 		}
 
 		Some(serde_json::from_str(line).map_err(|e| {
-			eprintln!("received line {line}");
+			error!("received line {line}");
 			e.into()
 		}))
 	}

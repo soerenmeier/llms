@@ -34,7 +34,7 @@ async fn main() {
 	let mut req = Request {
 		input: vec![],
 		instructions: "You are a helpful assistant.".into(),
-		model: Model::Apertus8bInstruct,
+		model: Model::MagistralMedium1_2,
 		user_id: "example_script".into(),
 		tools: vec![Tool {
 			name: "test_toolcall".into(),

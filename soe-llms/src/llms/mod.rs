@@ -301,6 +301,11 @@ enum RespStreamInner {
 }
 
 impl ResponseStream {
+	/// Get the next event.
+	///
+	/// # Cancel safety
+	///
+	/// This method is cancellation safe.
 	pub async fn next(&mut self) -> Option<Result<ResponseEvent, LlmsError>> {
 		use RespStreamInner::*;
 
