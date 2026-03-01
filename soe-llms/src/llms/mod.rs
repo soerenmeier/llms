@@ -246,17 +246,24 @@ pub(crate) trait LlmProvider {
 }
 
 pub(crate) trait LlmResponseStream {
-	async fn next(&mut self) -> Option<Result<ResponseEvent, LlmsError>>;
+	async fn next(&mut self) -> Option<Result<LlmResponseEvent, LlmsError>>;
 }
 
 #[derive(Debug)]
-pub enum ResponseEvent {
+pub(crate) enum LlmResponseEvent {
 	/// Note, on some providers the last TextDelta may not be emitted
 	/// but returned as part of the final Completed event instead.
 	TextDelta {
 		content: String,
 	},
 	Completed(Response),
+}
+
+#[derive(Debug)]
+pub enum ResponseEvent {
+	/// Note, on some providers the last TextDelta may not be emitted
+	/// but returned as part of the final Completed event instead.
+	TextDelta { content: String },
 }
 
 #[derive(Debug)]
@@ -288,6 +295,7 @@ pub enum Output {
 #[derive(Debug)]
 pub struct ResponseStream {
 	inner: RespStreamInner,
+	response: Option<Response>,
 }
 
 #[derive(Debug)]
@@ -301,6 +309,13 @@ enum RespStreamInner {
 }
 
 impl ResponseStream {
+	fn new(inner: RespStreamInner) -> Self {
+		Self {
+			inner,
+			response: None,
+		}
+	}
+
 	/// Get the next event.
 	///
 	/// # Cancel safety
@@ -309,61 +324,76 @@ impl ResponseStream {
 	pub async fn next(&mut self) -> Option<Result<ResponseEvent, LlmsError>> {
 		use RespStreamInner::*;
 
-		match &mut self.inner {
-			OpenAi(stream) => LlmResponseStream::next(stream).await,
-			Anthropic(stream) => LlmResponseStream::next(stream).await,
-			Google(stream) => LlmResponseStream::next(stream).await,
-			XAi(stream) => LlmResponseStream::next(stream).await,
-			Mistral(stream) => LlmResponseStream::next(stream).await,
-			PublicAi(stream) => LlmResponseStream::next(stream).await,
+		loop {
+			let ev = match &mut self.inner {
+				OpenAi(stream) => LlmResponseStream::next(stream).await,
+				Anthropic(stream) => LlmResponseStream::next(stream).await,
+				Google(stream) => LlmResponseStream::next(stream).await,
+				XAi(stream) => LlmResponseStream::next(stream).await,
+				Mistral(stream) => LlmResponseStream::next(stream).await,
+				PublicAi(stream) => LlmResponseStream::next(stream).await,
+			};
+
+			break match ev {
+				Some(Ok(LlmResponseEvent::TextDelta { content })) => {
+					Some(Ok(ResponseEvent::TextDelta { content }))
+				}
+				Some(Ok(LlmResponseEvent::Completed(resp))) => {
+					self.response = Some(resp);
+					continue;
+				}
+				Some(Err(e)) => Some(Err(e)),
+				None => {
+					assert!(
+						self.response.is_some(),
+						"response Completed event not received"
+					);
+					None
+				}
+			};
 		}
+	}
+
+	/// Get the final response after the stream has completed.
+	///
+	/// Returns `None` if the stream has not completed yet.
+	pub fn into_response(self) -> Option<Response> {
+		self.response
 	}
 }
 
 impl From<openai::ResponseStream> for ResponseStream {
 	fn from(stream: openai::ResponseStream) -> Self {
-		Self {
-			inner: RespStreamInner::OpenAi(stream),
-		}
+		Self::new(RespStreamInner::OpenAi(stream))
 	}
 }
 
 impl From<anthropic::ResponseStream> for ResponseStream {
 	fn from(stream: anthropic::ResponseStream) -> Self {
-		Self {
-			inner: RespStreamInner::Anthropic(stream),
-		}
+		Self::new(RespStreamInner::Anthropic(stream))
 	}
 }
 
 impl From<google::ResponseStream> for ResponseStream {
 	fn from(stream: google::ResponseStream) -> Self {
-		Self {
-			inner: RespStreamInner::Google(stream),
-		}
+		Self::new(RespStreamInner::Google(stream))
 	}
 }
 
 impl From<xai::ResponseStream> for ResponseStream {
 	fn from(stream: xai::ResponseStream) -> Self {
-		Self {
-			inner: RespStreamInner::XAi(stream),
-		}
+		Self::new(RespStreamInner::XAi(stream))
 	}
 }
 
 impl From<mistral::ResponseStream> for ResponseStream {
 	fn from(stream: mistral::ResponseStream) -> Self {
-		Self {
-			inner: RespStreamInner::Mistral(stream),
-		}
+		Self::new(RespStreamInner::Mistral(stream))
 	}
 }
 
 impl From<publicai::ResponseStream> for ResponseStream {
 	fn from(stream: publicai::ResponseStream) -> Self {
-		Self {
-			inner: RespStreamInner::PublicAi(stream),
-		}
+		Self::new(RespStreamInner::PublicAi(stream))
 	}
 }

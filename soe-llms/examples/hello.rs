@@ -63,16 +63,14 @@ async fn main() {
 
 	let mut stream = llms.request(&req).await.unwrap();
 
-	let mut response = None;
 	while let Some(thing) = stream.next().await {
 		match thing.unwrap() {
 			ResponseEvent::TextDelta { content } => eprint!("{}", content),
-			ResponseEvent::Completed(resp) => response = Some(resp),
 		}
 	}
 	eprint!("\n");
 
-	let response = response.unwrap();
+	let response = stream.into_response().unwrap();
 	eprintln!("Final output: {:?}", response);
 
 	for output in response.output {
@@ -112,16 +110,14 @@ async fn main() {
 
 	let mut stream = llms.request(&req).await.unwrap();
 
-	let mut response = None;
 	while let Some(thing) = stream.next().await {
 		match thing.unwrap() {
 			ResponseEvent::TextDelta { content } => eprint!("{}", content),
-			ResponseEvent::Completed(resp) => response = Some(resp),
 		}
 	}
 	eprint!("\n");
 
-	let response = response.unwrap();
+	let response = stream.into_response().unwrap();
 	eprintln!("Final output: {:?}", response);
 
 	req.input

@@ -408,7 +408,9 @@ impl ResponseStream {
 }
 
 impl LlmResponseStream for ResponseStream {
-	async fn next(&mut self) -> Option<Result<llms::ResponseEvent, LlmsError>> {
+	async fn next(
+		&mut self,
+	) -> Option<Result<llms::LlmResponseEvent, LlmsError>> {
 		if self.done {
 			return None;
 		}
@@ -421,7 +423,7 @@ impl LlmResponseStream for ResponseStream {
 					self.done = true;
 					let response = self
 						.build_response()
-						.map(llms::ResponseEvent::Completed)
+						.map(llms::LlmResponseEvent::Completed)
 						.map_err(Into::into);
 					return Some(response);
 				}
@@ -474,7 +476,7 @@ impl LlmResponseStream for ResponseStream {
 			}
 
 			if let Some(text) = text_delta {
-				return Some(Ok(llms::ResponseEvent::TextDelta {
+				return Some(Ok(llms::LlmResponseEvent::TextDelta {
 					content: text,
 				}));
 			}

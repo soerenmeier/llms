@@ -519,7 +519,9 @@ impl ResponseStream {
 }
 
 impl LlmResponseStream for ResponseStream {
-	async fn next(&mut self) -> Option<Result<llms::ResponseEvent, LlmsError>> {
+	async fn next(
+		&mut self,
+	) -> Option<Result<llms::LlmResponseEvent, LlmsError>> {
 		loop {
 			let ev = match self.next().await {
 				Some(Ok(ev)) => ev,
@@ -529,11 +531,11 @@ impl LlmResponseStream for ResponseStream {
 
 			break Some(match ev {
 				Event::ResponseOutputTextDelta { delta, .. } => {
-					Ok(llms::ResponseEvent::TextDelta { content: delta })
+					Ok(llms::LlmResponseEvent::TextDelta { content: delta })
 				}
 				Event::ResponseCompleted { response } => response
 					.try_into()
-					.map(llms::ResponseEvent::Completed)
+					.map(llms::LlmResponseEvent::Completed)
 					.map_err(Into::into),
 				Event::ResponseError { code, message } => {
 					return Some(Err(LlmsError::Response {
