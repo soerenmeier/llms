@@ -354,6 +354,22 @@ impl ResponseStream {
 		}
 	}
 
+	/// Wait for the stream to complete and return the final response
+	///
+	/// ## Cancel safety
+	/// This method is cancellation safe until a response was returned.
+	/// Then it will panic.
+	///
+	/// ## Panic
+	/// This method will panic after you received the response once.
+	pub async fn wait(&mut self) -> Result<Response, LlmsError> {
+		while let Some(result) = self.next().await {
+			result?;
+		}
+
+		Ok(self.response.take().unwrap())
+	}
+
 	/// Get the final response after the stream has completed.
 	///
 	/// Returns `None` if the stream has not completed yet.

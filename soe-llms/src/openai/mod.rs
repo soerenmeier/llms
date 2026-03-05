@@ -329,6 +329,7 @@ pub enum Event {
 		item_id: String,
 		arguments: String,
 	},
+	// received line
 	#[serde(rename = "error")]
 	ResponseError {
 		code: Option<String>,
