@@ -68,10 +68,11 @@ pub enum Role {
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub enum Model {
-	Gpt5,
+	Gpt5_2,
+	Gpt5_2Pro,
 	Gpt5Mini,
 	Gpt5Nano,
-	Gpt5_2,
+	Gpt5_3Codex,
 	ClaudeOpus4_6,
 	ClaudeSonnet4_6,
 	ClaudeHaiku4_5,
@@ -190,7 +191,11 @@ impl Llms {
 		req: &Request,
 	) -> Result<ResponseStream, LlmsError> {
 		match req.model {
-			Model::Gpt5 | Model::Gpt5Mini | Model::Gpt5Nano | Model::Gpt5_2 => {
+			Model::Gpt5_2
+			| Model::Gpt5_2Pro
+			| Model::Gpt5Mini
+			| Model::Gpt5Nano
+			| Model::Gpt5_3Codex => {
 				let llm = self.inner.open_ai.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("OpenAI".into())
 				})?;
