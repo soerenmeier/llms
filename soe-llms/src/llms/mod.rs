@@ -94,6 +94,30 @@ pub enum Model {
 	Apertus8bInstruct,
 }
 
+impl Model {
+	/// All models inside this enum.
+	pub const ALL: &'static [Model] = &[
+		Model::Gpt5_5,
+		Model::Gpt5_5Pro,
+		Model::Gpt5_4,
+		Model::Gpt5Mini,
+		Model::ClaudeOpus4_7,
+		Model::ClaudeSonnet4_6,
+		Model::ClaudeHaiku4_5,
+		Model::GeminiPro3_1,
+		Model::GeminiFlash3_1,
+		Model::GeminiFlash3_1Lite,
+		Model::Grok4_20,
+		Model::Grok4_1Fast,
+		Model::MistralLarge,
+		Model::MistralSmall,
+		Model::Ministral14b,
+		Model::Ministral8b,
+		Model::Devstral,
+		Model::Apertus8bInstruct,
+	];
+}
+
 #[derive(Debug, Clone)]
 pub struct Tool {
 	pub name: String,
