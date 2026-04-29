@@ -104,8 +104,9 @@ impl LlmProvider for Google {
 		req: &llms::Request,
 	) -> Result<Self::Stream, LlmsError> {
 		let model = match req.model {
-			llms::Model::GeminiPro3 => GeminiModel::Pro3,
-			llms::Model::GeminiFlash3 => GeminiModel::Flash3,
+			llms::Model::GeminiPro3_1 => GeminiModel::Pro3_1,
+			llms::Model::GeminiFlash3_1 => GeminiModel::Flash3_1,
+			llms::Model::GeminiFlash3_1Lite => GeminiModel::Flash3_1Lite,
 			m => unreachable!("unsupported model: {m:?}"),
 		};
 
@@ -253,15 +254,17 @@ impl From<llms::Tool> for ApiTool {
 
 #[derive(Debug, Clone, Copy)]
 pub enum GeminiModel {
-	Pro3,
-	Flash3,
+	Pro3_1,
+	Flash3_1,
+	Flash3_1Lite,
 }
 
 impl GeminiModel {
 	pub fn as_str(&self) -> &'static str {
 		match self {
-			GeminiModel::Pro3 => "gemini-3-pro-preview",
-			GeminiModel::Flash3 => "gemini-3-flash-preview",
+			GeminiModel::Pro3_1 => "gemini-3.1-pro",
+			GeminiModel::Flash3_1 => "gemini-3.1-flash",
+			GeminiModel::Flash3_1Lite => "gemini-3.1-flash-lite",
 		}
 	}
 }

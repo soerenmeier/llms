@@ -81,11 +81,11 @@ impl LlmProvider for Mistral {
 		req: &llms::Request,
 	) -> Result<Self::Stream, LlmsError> {
 		let model = match req.model {
-			llms::Model::MistralLarge3 => MistralModel::Large3,
-			llms::Model::MistralMedium3_1 => MistralModel::Medium3_1,
-			llms::Model::MistralSmall3_2 => MistralModel::Small3_2,
-			llms::Model::Devstral2 => MistralModel::Devstral2,
-			llms::Model::MagistralMedium1_2 => MistralModel::MagistralMedium1_2,
+			llms::Model::MistralLarge => MistralModel::Large,
+			llms::Model::MistralSmall => MistralModel::Small,
+			llms::Model::Ministral14b => MistralModel::Ministral14b,
+			llms::Model::Ministral8b => MistralModel::Ministral8b,
+			llms::Model::Devstral => MistralModel::Devstral,
 			m => unreachable!("unsupported model: {m:?}"),
 		};
 
@@ -117,21 +117,21 @@ pub struct Request {
 
 #[derive(Debug, Clone, Copy)]
 pub enum MistralModel {
-	Large3,
-	Medium3_1,
-	Small3_2,
-	Devstral2,
-	MagistralMedium1_2,
+	Large,
+	Small,
+	Ministral14b,
+	Ministral8b,
+	Devstral,
 }
 
 impl MistralModel {
 	pub fn as_str(&self) -> &'static str {
 		match self {
-			MistralModel::Large3 => "mistral-large-2512",
-			MistralModel::Medium3_1 => "mistral-medium-2508",
-			MistralModel::Small3_2 => "mistral-small-2506",
-			MistralModel::Devstral2 => "devstral-2512",
-			MistralModel::MagistralMedium1_2 => "magistral-medium-2509",
+			MistralModel::Large => "mistral-large-latest",
+			MistralModel::Small => "mistral-small-latest",
+			MistralModel::Ministral14b => "ministral-14b-latest",
+			MistralModel::Ministral8b => "ministral-8b-latest",
+			MistralModel::Devstral => "devstral-latest",
 		}
 	}
 }
@@ -412,7 +412,9 @@ impl ResponseStream {
 }
 
 impl LlmResponseStream for ResponseStream {
-	async fn next(&mut self) -> Option<Result<llms::LlmResponseEvent, LlmsError>> {
+	async fn next(
+		&mut self,
+	) -> Option<Result<llms::LlmResponseEvent, LlmsError>> {
 		if self.done {
 			return None;
 		}

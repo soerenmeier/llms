@@ -90,11 +90,10 @@ impl LlmProvider for OpenAi {
 		req: &llms::Request,
 	) -> Result<Self::Stream, LlmsError> {
 		let model = match &req.model {
-			llms::Model::Gpt5_2 => OpenAiModel::Gpt5_2,
-			llms::Model::Gpt5_2Pro => OpenAiModel::Gpt5_2Pro,
+			llms::Model::Gpt5_5 => OpenAiModel::Gpt5_5,
+			llms::Model::Gpt5_5Pro => OpenAiModel::Gpt5_5Pro,
+			llms::Model::Gpt5_4 => OpenAiModel::Gpt5_4,
 			llms::Model::Gpt5Mini => OpenAiModel::Gpt5Mini,
-			llms::Model::Gpt5Nano => OpenAiModel::Gpt5Nano,
-			llms::Model::Gpt5_3Codex => OpenAiModel::Gpt5_3Codex,
 			m => unreachable!("unsupported model: {m:?}"),
 		};
 
@@ -250,26 +249,23 @@ impl From<OpenAiError> for LlmsError {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub enum OpenAiModel {
-	#[serde(rename = "gpt-5.2")]
-	Gpt5_2,
-	#[serde(rename = "gpt-5.2-pro")]
-	Gpt5_2Pro,
+	#[serde(rename = "gpt-5.5")]
+	Gpt5_5,
+	#[serde(rename = "gpt-5.5-pro")]
+	Gpt5_5Pro,
+	#[serde(rename = "gpt-5.4")]
+	Gpt5_4,
 	#[serde(rename = "gpt-5-mini")]
 	Gpt5Mini,
-	#[serde(rename = "gpt-5-nano")]
-	Gpt5Nano,
-	#[serde(rename = "gpt-5.3-codex")]
-	Gpt5_3Codex,
 }
 
 impl OpenAiModel {
 	pub fn as_str(&self) -> &'static str {
 		match self {
-			OpenAiModel::Gpt5_2 => "gpt-5.2",
-			OpenAiModel::Gpt5_2Pro => "gpt-5.2-pro",
+			OpenAiModel::Gpt5_5 => "gpt-5.5",
+			OpenAiModel::Gpt5_5Pro => "gpt-5.5-pro",
+			OpenAiModel::Gpt5_4 => "gpt-5.4",
 			OpenAiModel::Gpt5Mini => "gpt-5-mini",
-			OpenAiModel::Gpt5Nano => "gpt-5-nano",
-			OpenAiModel::Gpt5_3Codex => "gpt-5.3-codex",
 		}
 	}
 }

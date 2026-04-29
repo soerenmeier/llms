@@ -81,11 +81,8 @@ impl LlmProvider for XAi {
 		req: &llms::Request,
 	) -> Result<Self::Stream, LlmsError> {
 		let model = match req.model {
+			llms::Model::Grok4_20 => XAiModel::Grok4_20,
 			llms::Model::Grok4_1Fast => XAiModel::Grok4_1Fast,
-			llms::Model::Grok4_1FastNonReasoning => {
-				XAiModel::Grok4_1FastNonReasoning
-			}
-			llms::Model::GrokCodeFast1 => XAiModel::GrokCodeFast1,
 			m => unreachable!("unsupported model: {m:?}"),
 		};
 
@@ -117,17 +114,15 @@ pub struct Request {
 
 #[derive(Debug, Clone, Copy)]
 pub enum XAiModel {
+	Grok4_20,
 	Grok4_1Fast,
-	Grok4_1FastNonReasoning,
-	GrokCodeFast1,
 }
 
 impl XAiModel {
 	pub fn as_str(&self) -> &'static str {
 		match self {
-			XAiModel::Grok4_1Fast => "grok-4-1-fast-reasoning",
-			XAiModel::Grok4_1FastNonReasoning => "grok-4-1-fast-non-reasoning",
-			XAiModel::GrokCodeFast1 => "grok-code-fast-1",
+			XAiModel::Grok4_20 => "grok-4.20",
+			XAiModel::Grok4_1Fast => "grok-4.1-fast",
 		}
 	}
 }
@@ -370,7 +365,9 @@ impl ResponseStream {
 }
 
 impl LlmResponseStream for ResponseStream {
-	async fn next(&mut self) -> Option<Result<llms::LlmResponseEvent, LlmsError>> {
+	async fn next(
+		&mut self,
+	) -> Option<Result<llms::LlmResponseEvent, LlmsError>> {
 		if self.done {
 			return None;
 		}

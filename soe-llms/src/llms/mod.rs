@@ -68,24 +68,28 @@ pub enum Role {
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub enum Model {
-	Gpt5_2,
-	Gpt5_2Pro,
+	Gpt5_5,
+	Gpt5_5Pro,
+	Gpt5_4,
 	Gpt5Mini,
-	Gpt5Nano,
-	Gpt5_3Codex,
-	ClaudeOpus4_6,
+
+	ClaudeOpus4_7,
 	ClaudeSonnet4_6,
 	ClaudeHaiku4_5,
-	GeminiPro3,
-	GeminiFlash3,
+
+	GeminiPro3_1,
+	GeminiFlash3_1,
+	GeminiFlash3_1Lite,
+
+	Grok4_20,
 	Grok4_1Fast,
-	Grok4_1FastNonReasoning,
-	GrokCodeFast1,
-	MistralLarge3,
-	MistralMedium3_1,
-	MistralSmall3_2,
-	Devstral2,
-	MagistralMedium1_2,
+
+	MistralLarge,
+	MistralSmall,
+	Ministral14b,
+	Ministral8b,
+	Devstral,
+
 	// At the moment tool calls are not supported
 	Apertus8bInstruct,
 }
@@ -191,17 +195,16 @@ impl Llms {
 		req: &Request,
 	) -> Result<ResponseStream, LlmsError> {
 		match req.model {
-			Model::Gpt5_2
-			| Model::Gpt5_2Pro
-			| Model::Gpt5Mini
-			| Model::Gpt5Nano
-			| Model::Gpt5_3Codex => {
+			Model::Gpt5_5
+			| Model::Gpt5_5Pro
+			| Model::Gpt5_4
+			| Model::Gpt5Mini => {
 				let llm = self.inner.open_ai.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("OpenAI".into())
 				})?;
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
-			Model::ClaudeOpus4_6
+			Model::ClaudeOpus4_7
 			| Model::ClaudeSonnet4_6
 			| Model::ClaudeHaiku4_5 => {
 				let llm = self.inner.anthropic.as_ref().ok_or_else(|| {
@@ -209,26 +212,26 @@ impl Llms {
 				})?;
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
-			Model::GeminiPro3 | Model::GeminiFlash3 => {
+			Model::GeminiPro3_1
+			| Model::GeminiFlash3_1
+			| Model::GeminiFlash3_1Lite => {
 				let llm = self.inner.google.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("Google".into())
 				})?;
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
-			Model::Grok4_1Fast
-			| Model::Grok4_1FastNonReasoning
-			| Model::GrokCodeFast1 => {
+			Model::Grok4_20 | Model::Grok4_1Fast => {
 				let llm =
 					self.inner.xai.as_ref().ok_or_else(|| {
 						LlmsError::LlmNotConfigured("xAI".into())
 					})?;
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
-			Model::MistralLarge3
-			| Model::MistralMedium3_1
-			| Model::MistralSmall3_2
-			| Model::Devstral2
-			| Model::MagistralMedium1_2 => {
+			Model::MistralLarge
+			| Model::MistralSmall
+			| Model::Ministral14b
+			| Model::Ministral8b
+			| Model::Devstral => {
 				let llm = self.inner.mistral.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("Mistral".into())
 				})?;

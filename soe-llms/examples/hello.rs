@@ -34,7 +34,7 @@ async fn main() {
 	let mut req = Request {
 		input: vec![],
 		instructions: "You are a helpful assistant.".into(),
-		model: Model::Gpt5_2Pro,
+		model: Model::Gpt5_5Pro,
 		user_id: "example_script".into(),
 		tools: vec![Tool {
 			name: "test_toolcall".into(),
