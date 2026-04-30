@@ -122,7 +122,7 @@ impl XAiModel {
 	pub fn as_str(&self) -> &'static str {
 		match self {
 			XAiModel::Grok4_20 => "grok-4.20",
-			XAiModel::Grok4_1Fast => "grok-4.1-fast",
+			XAiModel::Grok4_1Fast => "grok-4-1-fast",
 		}
 	}
 }

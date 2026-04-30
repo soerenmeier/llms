@@ -228,9 +228,9 @@ pub enum AnthropicModel {
 impl AnthropicModel {
 	pub fn as_str(&self) -> &'static str {
 		match self {
-			AnthropicModel::Opus4_7 => "claude-4-7-opus-latest",
-			AnthropicModel::Sonnet4_6 => "claude-4-6-sonnet-latest",
-			AnthropicModel::Haiku4_5 => "claude-4-5-haiku-latest",
+			AnthropicModel::Opus4_7 => "claude-opus-4-7",
+			AnthropicModel::Sonnet4_6 => "claude-sonnet-4-6",
+			AnthropicModel::Haiku4_5 => "claude-haiku-4-5",
 		}
 	}
 }

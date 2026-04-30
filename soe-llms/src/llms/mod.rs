@@ -78,7 +78,7 @@ pub enum Model {
 	ClaudeHaiku4_5,
 
 	GeminiPro3_1,
-	GeminiFlash3_1,
+	GeminiFlash3,
 	GeminiFlash3_1Lite,
 
 	Grok4_20,
@@ -105,7 +105,7 @@ impl Model {
 		Model::ClaudeSonnet4_6,
 		Model::ClaudeHaiku4_5,
 		Model::GeminiPro3_1,
-		Model::GeminiFlash3_1,
+		Model::GeminiFlash3,
 		Model::GeminiFlash3_1Lite,
 		Model::Grok4_20,
 		Model::Grok4_1Fast,
@@ -237,7 +237,7 @@ impl Llms {
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
 			Model::GeminiPro3_1
-			| Model::GeminiFlash3_1
+			| Model::GeminiFlash3
 			| Model::GeminiFlash3_1Lite => {
 				let llm = self.inner.google.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("Google".into())
