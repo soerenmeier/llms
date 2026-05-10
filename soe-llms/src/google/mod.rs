@@ -420,7 +420,7 @@ impl ResponseStream {
 			output.push(llms::Output::Text { content: text });
 		}
 
-		output.extend(self.tool_calls.drain(..));
+		output.append(&mut self.tool_calls);
 
 		if output.is_empty() {
 			return Err(GoogleError::NoOutput);

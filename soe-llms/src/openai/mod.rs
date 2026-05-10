@@ -526,7 +526,7 @@ impl ResponseStream {
 				trace!("new event: {ev:?}");
 				Some(Ok(ev))
 			}
-			a => return a,
+			a => a,
 		}
 	}
 }

@@ -68,7 +68,7 @@ async fn main() {
 			ResponseEvent::TextDelta { content } => eprint!("{}", content),
 		}
 	}
-	eprint!("\n");
+	eprintln!();
 
 	let response = stream.into_response().unwrap();
 	eprintln!("Final output: {:?}", response);
@@ -115,7 +115,7 @@ async fn main() {
 			ResponseEvent::TextDelta { content } => eprint!("{}", content),
 		}
 	}
-	eprint!("\n");
+	eprintln!();
 
 	let response = stream.into_response().unwrap();
 	eprintln!("Final output: {:?}", response);

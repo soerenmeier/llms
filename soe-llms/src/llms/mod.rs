@@ -361,7 +361,7 @@ impl Usage {
 
 	/// Fraction of the context window consumed, in `[0.0, 1.0]`.
 	pub fn fraction_used(&self, context_window: u32) -> f32 {
-		if context_window <= 0 {
+		if context_window == 0 {
 			return 0.0;
 		}
 

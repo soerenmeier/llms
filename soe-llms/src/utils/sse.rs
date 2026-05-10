@@ -25,9 +25,7 @@ impl SseResponse {
 
 		Self {
 			inner: StreamReader::new(
-				resp.bytes_stream()
-					.map_err(|e| io::Error::new(io::ErrorKind::Other, e))
-					.boxed(),
+				resp.bytes_stream().map_err(io::Error::other).boxed(),
 			)
 			.lines(),
 		}
