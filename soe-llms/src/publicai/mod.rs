@@ -47,6 +47,12 @@ impl PublicAi {
 			#[serde(skip_serializing_if = "Vec::is_empty")]
 			tools: &'a Vec<ApiTool>,
 			stream: bool,
+			stream_options: StreamOptions,
+		}
+
+		#[derive(Debug, Serialize)]
+		struct StreamOptions {
+			include_usage: bool,
 		}
 
 		let api_req = ApiReq {
@@ -54,6 +60,9 @@ impl PublicAi {
 			messages: &req.messages,
 			tools: &req.tools,
 			stream: true,
+			stream_options: StreamOptions {
+				include_usage: true,
+			},
 		};
 
 		trace!("{:?}", serde_json::to_string(&api_req));
@@ -232,7 +241,19 @@ impl From<llms::Tool> for ApiTool {
 
 #[derive(Debug, Deserialize)]
 pub struct Chunk {
+	#[serde(default)]
 	pub choices: Vec<ChunkChoice>,
+	/// Present on the final chunk when the upstream honors
+	/// `stream_options.include_usage`. Older deployments may omit it.
+	pub usage: Option<ApiUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApiUsage {
+	#[serde(default)]
+	pub prompt_tokens: u32,
+	#[serde(default)]
+	pub completion_tokens: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -316,6 +337,9 @@ pub struct ResponseStream {
 	/// Per-index tool call state. The index matches the `index` field in the
 	/// streaming delta and grows on demand.
 	tool_calls: Vec<ToolCallAccumulator>,
+	/// Token usage from the final stream chunk (when reported by the upstream).
+	/// `None` until that chunk arrives.
+	usage: Option<llms::Usage>,
 	done: bool,
 }
 
@@ -333,6 +357,7 @@ impl ResponseStream {
 			inner,
 			text: None,
 			tool_calls: Vec::new(),
+			usage: None,
 			done: false,
 		}
 	}
@@ -365,12 +390,20 @@ impl ResponseStream {
 			return Err(PublicAiError::NoOutput);
 		}
 
-		Ok(llms::Response { output })
+		let usage = self.usage.take().ok_or_else(|| {
+			PublicAiError::InvalidLlmResponse(
+				"missing usage in response".into(),
+			)
+		})?;
+
+		Ok(llms::Response { output, usage })
 	}
 }
 
 impl LlmResponseStream for ResponseStream {
-	async fn next(&mut self) -> Option<Result<llms::LlmResponseEvent, LlmsError>> {
+	async fn next(
+		&mut self,
+	) -> Option<Result<llms::LlmResponseEvent, LlmsError>> {
 		if self.done {
 			return None;
 		}
@@ -390,6 +423,13 @@ impl LlmResponseStream for ResponseStream {
 			};
 
 			trace!("publicai chunk: {chunk:?}");
+
+			if let Some(usage) = chunk.usage {
+				self.usage = Some(llms::Usage {
+					input_tokens: usage.prompt_tokens,
+					output_tokens: usage.completion_tokens,
+				});
+			}
 
 			let choice = match chunk.choices.into_iter().next() {
 				Some(c) => c,

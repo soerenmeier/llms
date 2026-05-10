@@ -275,7 +275,22 @@ impl GeminiModel {
 pub struct StreamChunk {
 	#[serde(default)]
 	pub candidates: Vec<Candidate>,
+	/// Cumulative token usage. Gemini emits this on most chunks; the last
+	/// non-`None` value seen is authoritative for the whole response.
+	#[serde(default, rename = "usageMetadata")]
+	pub usage_metadata: Option<UsageMetadata>,
 	pub error: Option<ApiErrorBody>,
+}
+
+#[derive(Debug, Deserialize, Clone, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct UsageMetadata {
+	#[serde(default)]
+	pub prompt_token_count: u32,
+	#[serde(default)]
+	pub candidates_token_count: u32,
+	#[serde(default)]
+	pub total_token_count: u32,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -361,6 +376,10 @@ pub struct ResponseStream {
 	/// non-empty content delta arrives.
 	text_acc: Option<String>,
 	tool_calls: Vec<llms::Output>,
+	/// Latest token usage seen on a chunk. Gemini's `usageMetadata` is
+	/// cumulative, so the value from the last chunk that carries it wins.
+	/// `None` until the first chunk with `usageMetadata` arrives.
+	usage: Option<llms::Usage>,
 	done: bool,
 }
 
@@ -378,6 +397,7 @@ impl ResponseStream {
 			inner,
 			text_acc: None,
 			tool_calls: Vec::new(),
+			usage: None,
 			done: false,
 		}
 	}
@@ -406,7 +426,11 @@ impl ResponseStream {
 			return Err(GoogleError::NoOutput);
 		}
 
-		Ok(llms::Response { output })
+		let usage = self.usage.take().ok_or_else(|| {
+			GoogleError::InvalidLlmResponse("missing usage in response".into())
+		})?;
+
+		Ok(llms::Response { output, usage })
 	}
 }
 
@@ -431,6 +455,13 @@ impl LlmResponseStream for ResponseStream {
 					return Some(response);
 				}
 			};
+
+			if let Some(usage) = chunk.usage_metadata {
+				self.usage = Some(llms::Usage {
+					input_tokens: usage.prompt_token_count,
+					output_tokens: usage.candidates_token_count,
+				});
+			}
 
 			if let Some(err) = chunk.error {
 				self.done = true;

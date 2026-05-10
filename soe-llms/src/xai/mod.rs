@@ -38,6 +38,12 @@ impl XAi {
 			#[serde(skip_serializing_if = "Vec::is_empty")]
 			tools: &'a Vec<ApiTool>,
 			stream: bool,
+			stream_options: StreamOptions,
+		}
+
+		#[derive(Debug, Serialize)]
+		struct StreamOptions {
+			include_usage: bool,
 		}
 
 		let api_req = ApiReq {
@@ -45,6 +51,9 @@ impl XAi {
 			messages: &req.messages,
 			tools: &req.tools,
 			stream: true,
+			stream_options: StreamOptions {
+				include_usage: true,
+			},
 		};
 
 		trace!("{:?}", serde_json::to_string(&api_req));
@@ -225,7 +234,19 @@ impl From<llms::Tool> for ApiTool {
 
 #[derive(Debug, Deserialize)]
 pub struct Chunk {
+	#[serde(default)]
 	pub choices: Vec<ChunkChoice>,
+	/// Present only on the final chunk when `stream_options.include_usage`
+	/// is enabled. That chunk has an empty `choices` array.
+	pub usage: Option<ApiUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApiUsage {
+	#[serde(default)]
+	pub prompt_tokens: u32,
+	#[serde(default)]
+	pub completion_tokens: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -311,6 +332,9 @@ pub struct ResponseStream {
 	/// Per-index tool call state. The index matches the `index` field in the
 	/// streaming delta and grows on demand.
 	tool_calls: Vec<ToolCallAccumulator>,
+	/// Token usage from the final stream chunk (when the server honors
+	/// `stream_options.include_usage`). `None` until that chunk arrives.
+	usage: Option<llms::Usage>,
 	done: bool,
 }
 
@@ -328,6 +352,7 @@ impl ResponseStream {
 			inner,
 			text: None,
 			tool_calls: Vec::new(),
+			usage: None,
 			done: false,
 		}
 	}
@@ -360,7 +385,11 @@ impl ResponseStream {
 			return Err(XAiError::NoOutput);
 		}
 
-		Ok(llms::Response { output })
+		let usage = self.usage.take().ok_or_else(|| {
+			XAiError::InvalidLlmResponse("missing usage in response".into())
+		})?;
+
+		Ok(llms::Response { output, usage })
 	}
 }
 
@@ -387,6 +416,13 @@ impl LlmResponseStream for ResponseStream {
 			};
 
 			trace!("xai chunk: {chunk:?}");
+
+			if let Some(usage) = chunk.usage {
+				self.usage = Some(llms::Usage {
+					input_tokens: usage.prompt_tokens,
+					output_tokens: usage.completion_tokens,
+				});
+			}
 
 			let choice = match chunk.choices.into_iter().next() {
 				Some(c) => c,

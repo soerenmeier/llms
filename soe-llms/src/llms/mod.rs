@@ -116,6 +116,38 @@ impl Model {
 		Model::Devstral,
 		Model::Apertus8bInstruct,
 	];
+
+	/// The model's total context window in tokens (input + output combined).
+	///
+	/// Values are taken from each provider's public documentation. Providers
+	/// occasionally bump these without changing the model name, so treat them
+	/// as conservative defaults — if you need a stricter or more accurate
+	/// budget, pass your own number directly to [`Usage::remaining_tokens`] /
+	/// [`Usage::fraction_used`].
+	pub fn context_window(&self) -> u32 {
+		match self {
+			Model::Gpt5_5 | Model::Gpt5_5Pro => 1_050_000,
+			Model::Gpt5_4 => 1_000_000,
+			Model::Gpt5Mini => 400_000,
+
+			Model::ClaudeOpus4_7 | Model::ClaudeSonnet4_6 => 1_000_000,
+			Model::ClaudeHaiku4_5 => 200_000,
+
+			Model::GeminiPro3_1
+			| Model::GeminiFlash3
+			| Model::GeminiFlash3_1Lite => 1_048_576,
+
+			Model::Grok4_20 | Model::Grok4_1Fast => 2_000_000,
+
+			Model::MistralLarge
+			| Model::MistralSmall
+			| Model::Ministral14b
+			| Model::Ministral8b
+			| Model::Devstral => 256_000,
+
+			Model::Apertus8bInstruct => 65_536,
+		}
+	}
 }
 
 #[derive(Debug, Clone)]
@@ -302,6 +334,39 @@ pub enum ResponseEvent {
 #[non_exhaustive]
 pub struct Response {
 	pub output: Vec<Output>,
+	pub usage: Usage,
+}
+
+/// Token usage reported by the provider for a single request.
+///
+/// Every supported provider always reports usage on a successful response;
+/// if it doesn't, the request fails with [`LlmsError::Response`] rather than
+/// silently producing zero counts.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Usage {
+	pub input_tokens: u32,
+	pub output_tokens: u32,
+}
+
+impl Usage {
+	pub fn total_tokens(&self) -> u32 {
+		self.input_tokens.saturating_add(self.output_tokens)
+	}
+
+	/// Tokens still available before hitting `context_window`.
+	pub fn remaining_tokens(&self, context_window: u32) -> u32 {
+		context_window.saturating_sub(self.total_tokens())
+	}
+
+	/// Fraction of the context window consumed, in `[0.0, 1.0]`.
+	pub fn fraction_used(&self, context_window: u32) -> f32 {
+		if context_window <= 0 {
+			return 0.0;
+		}
+
+		(self.total_tokens() as f32 / context_window as f32).min(1.0)
+	}
 }
 
 #[derive(Debug)]

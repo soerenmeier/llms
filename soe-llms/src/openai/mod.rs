@@ -352,12 +352,21 @@ impl TryFrom<Response> for llms::Response {
 			)));
 		}
 
+		let usage = resp.usage.ok_or_else(|| {
+			OpenAiError::InvalidLlmResponse("missing usage in response".into())
+		})?;
+		let usage = llms::Usage {
+			input_tokens: usage.input_tokens,
+			output_tokens: usage.output_tokens,
+		};
+
 		Ok(llms::Response {
 			output: resp
 				.output
 				.into_iter()
 				.filter_map(|o| Option::<llms::Output>::try_from(o).transpose())
 				.collect::<Result<_, Self::Error>>()?,
+			usage,
 		})
 	}
 }

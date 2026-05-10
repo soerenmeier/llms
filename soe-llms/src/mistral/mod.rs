@@ -234,7 +234,19 @@ impl From<llms::Tool> for ApiTool {
 
 #[derive(Debug, Deserialize)]
 pub struct Chunk {
+	#[serde(default)]
 	pub choices: Vec<ChunkChoice>,
+	/// Mistral always emits a final chunk carrying token usage. Other chunks
+	/// have this set to `None`.
+	pub usage: Option<ApiUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApiUsage {
+	#[serde(default)]
+	pub prompt_tokens: u32,
+	#[serde(default)]
+	pub completion_tokens: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -358,6 +370,9 @@ pub struct ResponseStream {
 	/// Per-index tool call state. The index matches the `index` field in the
 	/// streaming delta and grows on demand.
 	tool_calls: Vec<ToolCallAccumulator>,
+	/// Token usage reported by Mistral on the final chunk. `None` until that
+	/// chunk arrives.
+	usage: Option<llms::Usage>,
 	done: bool,
 }
 
@@ -375,6 +390,7 @@ impl ResponseStream {
 			inner,
 			text: None,
 			tool_calls: Vec::new(),
+			usage: None,
 			done: false,
 		}
 	}
@@ -407,7 +423,11 @@ impl ResponseStream {
 			return Err(MistralError::NoOutput);
 		}
 
-		Ok(llms::Response { output })
+		let usage = self.usage.take().ok_or_else(|| {
+			MistralError::InvalidLlmResponse("missing usage in response".into())
+		})?;
+
+		Ok(llms::Response { output, usage })
 	}
 }
 
@@ -434,6 +454,13 @@ impl LlmResponseStream for ResponseStream {
 			};
 
 			trace!("mistral chunk: {chunk:?}");
+
+			if let Some(usage) = chunk.usage {
+				self.usage = Some(llms::Usage {
+					input_tokens: usage.prompt_tokens,
+					output_tokens: usage.completion_tokens,
+				});
+			}
 
 			let choice = match chunk.choices.into_iter().next() {
 				Some(c) => c,

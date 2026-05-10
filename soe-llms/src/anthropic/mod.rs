@@ -357,6 +357,10 @@ pub struct ResponseStream {
 	/// Content blocks accumulated in arrival order (Anthropic always sends
 	/// them sequentially, so index == position in this Vec).
 	blocks: Vec<BlockAccumulator>,
+	/// Token usage accumulated across `message_start` (input) and
+	/// `message_delta` (output) events. `None` until the first event with a
+	/// `usage` payload arrives.
+	usage: Option<llms::Usage>,
 	done: bool,
 }
 
@@ -373,6 +377,7 @@ impl ResponseStream {
 		Self {
 			inner,
 			blocks: Vec::new(),
+			usage: None,
 			done: false,
 		}
 	}
@@ -415,7 +420,13 @@ impl ResponseStream {
 				}
 			}
 		}
-		Ok(llms::Response { output })
+		let usage = self.usage.take().ok_or_else(|| {
+			AnthropicError::InvalidLlmResponse(
+				"missing usage in response".into(),
+			)
+		})?;
+
+		Ok(llms::Response { output, usage })
 	}
 }
 
@@ -435,6 +446,22 @@ impl LlmResponseStream for ResponseStream {
 			};
 
 			match ev {
+				Event::MessageStart { message } => {
+					if let Some(usage) = message.usage {
+						self.usage
+							.get_or_insert_with(llms::Usage::default)
+							.input_tokens = usage.input_tokens;
+					}
+					continue;
+				}
+				Event::MessageDelta { usage, .. } => {
+					if let Some(usage) = usage {
+						self.usage
+							.get_or_insert_with(llms::Usage::default)
+							.output_tokens = usage.output_tokens;
+					}
+					continue;
+				}
 				Event::ContentBlockStart { content_block, .. } => {
 					let block = match content_block {
 						ContentBlockStartData::Text { text } => {
