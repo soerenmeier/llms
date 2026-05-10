@@ -331,10 +331,7 @@ pub enum Event {
 	},
 	// received line
 	#[serde(rename = "error")]
-	ResponseError {
-		code: Option<String>,
-		message: String,
-	},
+	ResponseError { error: ResponseError },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -492,6 +489,12 @@ pub struct FunctionCallOutput {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct ResponseError {
+	pub code: String,
+	pub message: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ResponseUsage {
 	pub input_tokens: u32,
 	pub output_tokens: u32,
@@ -538,10 +541,10 @@ impl LlmResponseStream for ResponseStream {
 					.try_into()
 					.map(llms::LlmResponseEvent::Completed)
 					.map_err(Into::into),
-				Event::ResponseError { code, message } => {
+				Event::ResponseError { error } => {
 					return Some(Err(LlmsError::Response {
 						status: StatusCode::OK,
-						body: format!("{code:?}: {message}",),
+						body: format!("{}: {}", error.code, error.message),
 					}));
 				}
 				_ => continue,
