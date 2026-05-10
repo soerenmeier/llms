@@ -239,6 +239,15 @@ pub struct Chunk {
 	/// Mistral always emits a final chunk carrying token usage. Other chunks
 	/// have this set to `None`.
 	pub usage: Option<ApiUsage>,
+	/// Present when the upstream emits a mid-stream error frame instead of
+	/// a normal completion chunk. OpenAI-compatible APIs wrap the error in
+	/// `{ "error": { "message": ..., ... } }`.
+	pub error: Option<ApiErrorBody>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApiErrorBody {
+	pub message: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -454,6 +463,15 @@ impl LlmResponseStream for ResponseStream {
 			};
 
 			trace!("mistral chunk: {chunk:?}");
+
+			if let Some(err) = chunk.error {
+				self.done = true;
+				return Some(Err(MistralError::ResponseError {
+					status: StatusCode::OK,
+					body: err.message,
+				}
+				.into()));
+			}
 
 			if let Some(usage) = chunk.usage {
 				self.usage = Some(llms::Usage {

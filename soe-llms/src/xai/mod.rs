@@ -239,6 +239,15 @@ pub struct Chunk {
 	/// Present only on the final chunk when `stream_options.include_usage`
 	/// is enabled. That chunk has an empty `choices` array.
 	pub usage: Option<ApiUsage>,
+	/// Present when the upstream emits a mid-stream error frame instead of
+	/// a normal completion chunk. OpenAI-compatible APIs wrap the error in
+	/// `{ "error": { "message": ..., ... } }`.
+	pub error: Option<ApiErrorBody>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApiErrorBody {
+	pub message: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -416,6 +425,15 @@ impl LlmResponseStream for ResponseStream {
 			};
 
 			trace!("xai chunk: {chunk:?}");
+
+			if let Some(err) = chunk.error {
+				self.done = true;
+				return Some(Err(XAiError::ResponseError {
+					status: StatusCode::OK,
+					body: err.message,
+				}
+				.into()));
+			}
 
 			if let Some(usage) = chunk.usage {
 				self.usage = Some(llms::Usage {
