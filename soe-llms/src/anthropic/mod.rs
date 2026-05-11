@@ -405,12 +405,16 @@ impl ResponseStream {
 					name,
 					input_json,
 				} => {
-					let input =
+					let input = if input_json.is_empty() {
+						Value::Object(Default::default())
+					} else {
 						serde_json::from_str(&input_json).map_err(|e| {
 							AnthropicError::InvalidLlmResponse(format!(
 								"invalid tool input JSON for '{name}': {e}"
 							))
-						})?;
+						})?
+					};
+
 					output.push(llms::Output::ToolCall {
 						id,
 						name,
