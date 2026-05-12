@@ -3,7 +3,7 @@ use std::fmt;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::trace;
+use tracing::{debug, trace};
 
 use crate::{
 	llms::{self, LlmProvider, LlmResponseStream, LlmsError},
@@ -80,6 +80,10 @@ impl LlmProvider for Mistral {
 		&self,
 		req: &llms::Request,
 	) -> Result<Self::Stream, LlmsError> {
+		if req.reasoning_effort.is_some() {
+			debug!("reasoning_effort is ignored for Mistral");
+		}
+
 		let model = match req.model {
 			llms::Model::MistralLarge => MistralModel::Large,
 			llms::Model::MistralSmall => MistralModel::Small,

@@ -42,6 +42,8 @@ impl Google {
 			system_instruction: Option<ApiSystemInstruction>,
 			#[serde(skip_serializing_if = "Vec::is_empty")]
 			tools: &'a Vec<ApiTool>,
+			#[serde(skip_serializing_if = "Option::is_none")]
+			generation_config: Option<GenerationConfig>,
 		}
 
 		#[derive(Debug, Serialize)]
@@ -58,10 +60,18 @@ impl Google {
 				}
 			});
 
+		let generation_config =
+			req.thinking_level.map(|level| GenerationConfig {
+				thinking_config: ThinkingConfig {
+					thinking_level: level,
+				},
+			});
+
 		let api_req = ApiReq {
 			contents: &req.contents,
 			system_instruction,
 			tools: &req.tools,
+			generation_config,
 		};
 
 		trace!("{:?}", serde_json::to_string(&api_req));
@@ -116,11 +126,18 @@ impl LlmProvider for Google {
 			Some(req.instructions.clone())
 		};
 
+		let thinking_level = req.reasoning_effort.map(|e| match e {
+			llms::ReasoningEffort::Low => ThinkingLevel::Low,
+			llms::ReasoningEffort::Medium => ThinkingLevel::Medium,
+			llms::ReasoningEffort::High => ThinkingLevel::High,
+		});
+
 		self.request(&Request {
 			contents: req.input.iter().cloned().map(Into::into).collect(),
 			model,
 			system_instruction,
 			tools: req.tools.iter().cloned().map(Into::into).collect(),
+			thinking_level,
 		})
 		.await
 		.map_err(Into::into)
@@ -133,6 +150,29 @@ pub struct Request {
 	pub model: GeminiModel,
 	pub system_instruction: Option<String>,
 	pub tools: Vec<ApiTool>,
+	/// `thinkingConfig.thinkingLevel`. `None` omits the field (Gemini
+	/// defaults to dynamic thinking).
+	pub thinking_level: Option<ThinkingLevel>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct GenerationConfig {
+	thinking_config: ThinkingConfig,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ThinkingConfig {
+	thinking_level: ThinkingLevel,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ThinkingLevel {
+	Low,
+	Medium,
+	High,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

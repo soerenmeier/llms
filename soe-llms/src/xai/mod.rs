@@ -3,7 +3,7 @@ use std::fmt;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::trace;
+use tracing::{debug, trace};
 
 use crate::{
 	llms::{self, LlmProvider, LlmResponseStream, LlmsError},
@@ -94,6 +94,12 @@ impl LlmProvider for XAi {
 			llms::Model::Grok4_1Fast => XAiModel::Grok4_1Fast,
 			m => unreachable!("unsupported model: {m:?}"),
 		};
+
+		if req.reasoning_effort.is_some() {
+			debug!(
+				"reasoning_effort is ignored for xAI (Grok 4 always reasons)"
+			);
+		}
 
 		let mut messages: Vec<ApiMessage> = Vec::new();
 

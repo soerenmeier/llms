@@ -3,7 +3,7 @@ use std::fmt;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::trace;
+use tracing::{debug, trace};
 
 use crate::{
 	llms::{self, LlmProvider, LlmResponseStream, LlmsError},
@@ -15,6 +15,9 @@ use crate::{
 
 const ANTHROPIC_VERSION: &str = "2023-06-01";
 const DEFAULT_MAX_TOKENS: u32 = 8096;
+/// Used when adaptive thinking is on; the model needs room for both
+/// reasoning and the final answer within this single cap.
+const EFFORT_MAX_TOKENS: u32 = 32768;
 
 #[derive(Clone)]
 pub struct Anthropic {
@@ -43,8 +46,19 @@ impl Anthropic {
 			messages: &'a Vec<ApiMessage>,
 			#[serde(skip_serializing_if = "Vec::is_empty")]
 			tools: &'a Vec<ApiTool>,
+			#[serde(skip_serializing_if = "Option::is_none")]
+			thinking: Option<Thinking>,
+			#[serde(skip_serializing_if = "Option::is_none")]
+			output_config: Option<OutputConfig>,
 			stream: bool,
 		}
+
+		let (thinking, output_config) = match req.effort {
+			Some(effort) => {
+				(Some(Thinking::Adaptive), Some(OutputConfig { effort }))
+			}
+			None => (None, None),
+		};
 
 		let api_req = ApiReq {
 			model: req.model.as_str(),
@@ -52,6 +66,8 @@ impl Anthropic {
 			system: req.system.as_deref(),
 			messages: &req.messages,
 			tools: &req.tools,
+			thinking,
+			output_config,
 			stream: true,
 		};
 
@@ -104,12 +120,33 @@ impl LlmProvider for Anthropic {
 			Some(req.instructions.clone())
 		};
 
+		// Haiku 4.5 doesn't support adaptive thinking; silently ignore.
+		let effort = match (model, req.reasoning_effort) {
+			(AnthropicModel::Haiku4_5, Some(_)) => {
+				debug!("reasoning_effort is ignored for Claude Haiku 4.5");
+				None
+			}
+			(_, None) => None,
+			(_, Some(llms::ReasoningEffort::Low)) => Some(Effort::Low),
+			(_, Some(llms::ReasoningEffort::Medium)) => Some(Effort::Medium),
+			(_, Some(llms::ReasoningEffort::High)) => Some(Effort::High),
+		};
+
+		// Thinking tokens count toward max_tokens; give the model headroom
+		// for both reasoning and the final answer when effort is set.
+		let max_tokens = if effort.is_some() {
+			EFFORT_MAX_TOKENS
+		} else {
+			DEFAULT_MAX_TOKENS
+		};
+
 		self.request(&Request {
 			messages: req.input.iter().cloned().map(Into::into).collect(),
 			model,
 			system,
 			tools: req.tools.iter().cloned().map(Into::into).collect(),
-			max_tokens: DEFAULT_MAX_TOKENS,
+			max_tokens,
+			effort,
 		})
 		.await
 		.map_err(Into::into)
@@ -122,7 +159,31 @@ pub struct Request {
 	pub model: AnthropicModel,
 	pub system: Option<String>,
 	pub tools: Vec<ApiTool>,
+	/// Max tokens for the whole response. Adaptive thinking tokens count
+	/// toward this cap, so callers should pass a larger value when `effort`
+	/// is set.
 	pub max_tokens: u32,
+	/// `output_config.effort`. `None` omits the thinking/output_config fields.
+	pub effort: Option<Effort>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum Thinking {
+	Adaptive,
+}
+
+#[derive(Debug, Serialize)]
+struct OutputConfig {
+	effort: Effort,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Effort {
+	Low,
+	Medium,
+	High,
 }
 
 #[derive(Debug, Serialize)]
@@ -278,15 +339,40 @@ pub struct MessageStartUsage {
 #[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentBlockStartData {
-	Text { text: String },
-	ToolUse { id: String, name: String },
+	Text {
+		text: String,
+	},
+	ToolUse {
+		id: String,
+		name: String,
+	},
+	/// Adaptive-thinking content block. We don't surface reasoning text to
+	/// callers, so the fields are deserialized but ignored.
+	Thinking {
+		#[serde(default)]
+		thinking: String,
+		#[serde(default)]
+		signature: String,
+	},
 }
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ContentDelta {
-	TextDelta { text: String },
-	InputJsonDelta { partial_json: String },
+	TextDelta {
+		text: String,
+	},
+	InputJsonDelta {
+		partial_json: String,
+	},
+	/// Streaming delta for a `thinking` content block. Ignored.
+	ThinkingDelta {
+		thinking: String,
+	},
+	/// Streaming signature for a `thinking` block. Ignored.
+	SignatureDelta {
+		signature: String,
+	},
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -350,6 +436,10 @@ enum BlockAccumulator {
 		name: String,
 		input_json: String,
 	},
+	/// Thinking blocks are accumulated as a placeholder so block indices
+	/// stay aligned with what Anthropic emits, but the content is dropped
+	/// when building the final response.
+	Thinking,
 }
 
 pub struct ResponseStream {
@@ -400,6 +490,7 @@ impl ResponseStream {
 					output.push(llms::Output::Text { content: text });
 				}
 				BlockAccumulator::Text { .. } => {}
+				BlockAccumulator::Thinking => {}
 				BlockAccumulator::ToolUse {
 					id,
 					name,
@@ -478,6 +569,9 @@ impl LlmResponseStream for ResponseStream {
 								input_json: String::new(),
 							}
 						}
+						ContentBlockStartData::Thinking { .. } => {
+							BlockAccumulator::Thinking
+						}
 					};
 
 					self.blocks.push(block);
@@ -508,6 +602,11 @@ impl LlmResponseStream for ResponseStream {
 							input_json.push_str(&partial_json);
 							continue;
 						}
+						(
+							ContentDelta::ThinkingDelta { .. }
+							| ContentDelta::SignatureDelta { .. },
+							BlockAccumulator::Thinking,
+						) => continue,
 						_ => unreachable!(
 							"received delta of wrong type for content block"
 						),

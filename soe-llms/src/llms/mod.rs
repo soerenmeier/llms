@@ -13,6 +13,22 @@ pub struct Request {
 	pub model: Model,
 	pub user_id: String,
 	pub tools: Vec<Tool>,
+	pub reasoning_effort: Option<ReasoningEffort>,
+}
+
+/// Reasoning effort level.
+///
+/// Mapping:
+/// - OpenAI: `reasoning.effort`
+/// - Anthropic: `output_config.effort` via adaptive thinking.
+///   Not supported on Claude Haiku 4.5 (ignored).
+/// - Google: `thinkingConfig.thinkingLevel`
+/// - xAI / Mistral / PublicAi: ignored
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ReasoningEffort {
+	Low,
+	Medium,
+	High,
 }
 
 #[derive(Debug, Clone)]

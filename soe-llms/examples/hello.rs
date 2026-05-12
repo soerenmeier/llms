@@ -50,6 +50,7 @@ async fn main() {
 				"required": ["name"],
 			})),
 		}],
+		reasoning_effort: None,
 	};
 
 	req.input = vec![Input::Text {

@@ -41,6 +41,8 @@ impl OpenAi {
 			prompt_cache_key: &'a String,
 			safety_identifier: &'a String,
 			tools: &'a Vec<Tool>,
+			#[serde(skip_serializing_if = "Option::is_none")]
+			reasoning: Option<Reasoning>,
 			stream: bool,
 		}
 
@@ -51,6 +53,7 @@ impl OpenAi {
 			prompt_cache_key: &req.prompt_cache_key,
 			safety_identifier: &req.safety_identifier,
 			tools: &req.tools,
+			reasoning: req.reasoning_effort.map(|e| Reasoning { effort: e }),
 			stream: true,
 		};
 
@@ -97,6 +100,21 @@ impl LlmProvider for OpenAi {
 			m => unreachable!("unsupported model: {m:?}"),
 		};
 
+		// GPT-5.5 Pro doesn't accept `low` (its tiers are medium / high /
+		// xhigh), so we shift the effort levels up one for that model.
+		let reasoning_effort = req.reasoning_effort.map(|e| match (model, e) {
+			(OpenAiModel::Gpt5_5Pro, llms::ReasoningEffort::Low) => {
+				ReasoningEffort::Medium
+			}
+			(OpenAiModel::Gpt5_5Pro, llms::ReasoningEffort::Medium) => {
+				ReasoningEffort::High
+			}
+			(OpenAiModel::Gpt5_5Pro, llms::ReasoningEffort::High) => {
+				ReasoningEffort::XHigh
+			}
+			(_, e) => e.into(),
+		});
+
 		self.request(&Request {
 			input: req.input.iter().cloned().map(Into::into).collect(),
 			instructions: req.instructions.clone(),
@@ -104,6 +122,7 @@ impl LlmProvider for OpenAi {
 			prompt_cache_key: req.user_id.clone(),
 			safety_identifier: req.user_id.clone(),
 			tools: req.tools.iter().cloned().map(Into::into).collect(),
+			reasoning_effort,
 		})
 		.await
 		.map_err(Into::into)
@@ -118,6 +137,32 @@ pub struct Request {
 	pub prompt_cache_key: String,
 	pub safety_identifier: String,
 	pub tools: Vec<Tool>,
+	pub reasoning_effort: Option<ReasoningEffort>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+struct Reasoning {
+	effort: ReasoningEffort,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffort {
+	Low,
+	Medium,
+	High,
+	/// GPT-5.5 Pro only.
+	XHigh,
+}
+
+impl From<llms::ReasoningEffort> for ReasoningEffort {
+	fn from(e: llms::ReasoningEffort) -> Self {
+		match e {
+			llms::ReasoningEffort::Low => ReasoningEffort::Low,
+			llms::ReasoningEffort::Medium => ReasoningEffort::Medium,
+			llms::ReasoningEffort::High => ReasoningEffort::High,
+		}
+	}
 }
 
 #[derive(Debug, Serialize, Deserialize)]

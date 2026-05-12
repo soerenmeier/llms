@@ -54,6 +54,7 @@ async fn run_model(llms: &Llms, model: Model) -> Result<(), LlmsError> {
 		model,
 		user_id: "example_all".into(),
 		tools: vec![],
+		reasoning_effort: None,
 	};
 
 	let mut stream = llms.request(&req).await?;
