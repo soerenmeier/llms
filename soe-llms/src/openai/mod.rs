@@ -332,6 +332,8 @@ pub enum Event {
 	// received line
 	#[serde(rename = "error")]
 	ResponseError { error: ResponseError },
+	#[serde(rename = "keepalive")]
+	Keepalive,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -556,6 +558,7 @@ impl LlmResponseStream for ResponseStream {
 						body: format!("{}: {}", error.code, error.message),
 					}));
 				}
+				Event::Keepalive => continue,
 				_ => continue,
 			});
 		}
