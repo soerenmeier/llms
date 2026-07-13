@@ -84,27 +84,25 @@ pub enum Role {
 #[derive(Debug, Clone, Copy)]
 #[non_exhaustive]
 pub enum Model {
-	Gpt5_5,
-	Gpt5_5Pro,
-	Gpt5_4,
-	Gpt5Mini,
+	Gpt5_6Sol,
+	Gpt5_6Terra,
+	Gpt5_6Luna,
 
-	ClaudeOpus4_7,
-	ClaudeSonnet4_6,
+	ClaudeFable5,
+	ClaudeOpus4_8,
+	ClaudeSonnet5,
 	ClaudeHaiku4_5,
 
 	GeminiPro3_1,
-	GeminiFlash3,
+	GeminiFlash3_5,
 	GeminiFlash3_1Lite,
 
-	Grok4_20,
-	Grok4_1Fast,
+	Grok4_5,
 
 	MistralLarge,
+	MistralMedium,
 	MistralSmall,
 	Ministral14b,
-	Ministral8b,
-	Devstral,
 
 	// At the moment tool calls are not supported
 	Apertus8bInstruct,
@@ -113,23 +111,21 @@ pub enum Model {
 impl Model {
 	/// All models inside this enum.
 	pub const ALL: &'static [Model] = &[
-		Model::Gpt5_5,
-		Model::Gpt5_5Pro,
-		Model::Gpt5_4,
-		Model::Gpt5Mini,
-		Model::ClaudeOpus4_7,
-		Model::ClaudeSonnet4_6,
+		Model::Gpt5_6Sol,
+		Model::Gpt5_6Terra,
+		Model::Gpt5_6Luna,
+		Model::ClaudeFable5,
+		Model::ClaudeOpus4_8,
+		Model::ClaudeSonnet5,
 		Model::ClaudeHaiku4_5,
 		Model::GeminiPro3_1,
-		Model::GeminiFlash3,
+		Model::GeminiFlash3_5,
 		Model::GeminiFlash3_1Lite,
-		Model::Grok4_20,
-		Model::Grok4_1Fast,
+		Model::Grok4_5,
 		Model::MistralLarge,
+		Model::MistralMedium,
 		Model::MistralSmall,
 		Model::Ministral14b,
-		Model::Ministral8b,
-		Model::Devstral,
 		Model::Apertus8bInstruct,
 	];
 
@@ -142,24 +138,25 @@ impl Model {
 	/// [`Usage::fraction_used`].
 	pub fn context_window(&self) -> u32 {
 		match self {
-			Model::Gpt5_5 | Model::Gpt5_5Pro => 1_050_000,
-			Model::Gpt5_4 => 1_000_000,
-			Model::Gpt5Mini => 400_000,
+			Model::Gpt5_6Sol | Model::Gpt5_6Terra | Model::Gpt5_6Luna => {
+				1_050_000
+			}
 
-			Model::ClaudeOpus4_7 | Model::ClaudeSonnet4_6 => 1_000_000,
+			Model::ClaudeFable5
+			| Model::ClaudeOpus4_8
+			| Model::ClaudeSonnet5 => 1_000_000,
 			Model::ClaudeHaiku4_5 => 200_000,
 
 			Model::GeminiPro3_1
-			| Model::GeminiFlash3
+			| Model::GeminiFlash3_5
 			| Model::GeminiFlash3_1Lite => 1_048_576,
 
-			Model::Grok4_20 | Model::Grok4_1Fast => 2_000_000,
+			Model::Grok4_5 => 500_000,
 
 			Model::MistralLarge
+			| Model::MistralMedium
 			| Model::MistralSmall
-			| Model::Ministral14b
-			| Model::Ministral8b
-			| Model::Devstral => 256_000,
+			| Model::Ministral14b => 256_000,
 
 			Model::Apertus8bInstruct => 65_536,
 		}
@@ -267,17 +264,15 @@ impl Llms {
 		req: &Request,
 	) -> Result<ResponseStream, LlmsError> {
 		match req.model {
-			Model::Gpt5_5
-			| Model::Gpt5_5Pro
-			| Model::Gpt5_4
-			| Model::Gpt5Mini => {
+			Model::Gpt5_6Sol | Model::Gpt5_6Terra | Model::Gpt5_6Luna => {
 				let llm = self.inner.open_ai.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("OpenAI".into())
 				})?;
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
-			Model::ClaudeOpus4_7
-			| Model::ClaudeSonnet4_6
+			Model::ClaudeFable5
+			| Model::ClaudeOpus4_8
+			| Model::ClaudeSonnet5
 			| Model::ClaudeHaiku4_5 => {
 				let llm = self.inner.anthropic.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("Anthropic".into())
@@ -285,14 +280,14 @@ impl Llms {
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
 			Model::GeminiPro3_1
-			| Model::GeminiFlash3
+			| Model::GeminiFlash3_5
 			| Model::GeminiFlash3_1Lite => {
 				let llm = self.inner.google.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("Google".into())
 				})?;
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
-			Model::Grok4_20 | Model::Grok4_1Fast => {
+			Model::Grok4_5 => {
 				let llm =
 					self.inner.xai.as_ref().ok_or_else(|| {
 						LlmsError::LlmNotConfigured("xAI".into())
@@ -300,10 +295,9 @@ impl Llms {
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
 			Model::MistralLarge
+			| Model::MistralMedium
 			| Model::MistralSmall
-			| Model::Ministral14b
-			| Model::Ministral8b
-			| Model::Devstral => {
+			| Model::Ministral14b => {
 				let llm = self.inner.mistral.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("Mistral".into())
 				})?;

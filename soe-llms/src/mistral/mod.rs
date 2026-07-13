@@ -86,10 +86,9 @@ impl LlmProvider for Mistral {
 
 		let model = match req.model {
 			llms::Model::MistralLarge => MistralModel::Large,
+			llms::Model::MistralMedium => MistralModel::Medium,
 			llms::Model::MistralSmall => MistralModel::Small,
 			llms::Model::Ministral14b => MistralModel::Ministral14b,
-			llms::Model::Ministral8b => MistralModel::Ministral8b,
-			llms::Model::Devstral => MistralModel::Devstral,
 			m => unreachable!("unsupported model: {m:?}"),
 		};
 
@@ -122,20 +121,18 @@ pub struct Request {
 #[derive(Debug, Clone, Copy)]
 pub enum MistralModel {
 	Large,
+	Medium,
 	Small,
 	Ministral14b,
-	Ministral8b,
-	Devstral,
 }
 
 impl MistralModel {
 	pub fn as_str(&self) -> &'static str {
 		match self {
 			MistralModel::Large => "mistral-large-latest",
+			MistralModel::Medium => "mistral-medium-latest",
 			MistralModel::Small => "mistral-small-latest",
 			MistralModel::Ministral14b => "ministral-14b-latest",
-			MistralModel::Ministral8b => "ministral-8b-latest",
-			MistralModel::Devstral => "devstral-latest",
 		}
 	}
 }

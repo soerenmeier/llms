@@ -93,27 +93,11 @@ impl LlmProvider for OpenAi {
 		req: &llms::Request,
 	) -> Result<Self::Stream, LlmsError> {
 		let model = match &req.model {
-			llms::Model::Gpt5_5 => OpenAiModel::Gpt5_5,
-			llms::Model::Gpt5_5Pro => OpenAiModel::Gpt5_5Pro,
-			llms::Model::Gpt5_4 => OpenAiModel::Gpt5_4,
-			llms::Model::Gpt5Mini => OpenAiModel::Gpt5Mini,
+			llms::Model::Gpt5_6Sol => OpenAiModel::Gpt5_6Sol,
+			llms::Model::Gpt5_6Terra => OpenAiModel::Gpt5_6Terra,
+			llms::Model::Gpt5_6Luna => OpenAiModel::Gpt5_6Luna,
 			m => unreachable!("unsupported model: {m:?}"),
 		};
-
-		// GPT-5.5 Pro doesn't accept `low` (its tiers are medium / high /
-		// xhigh), so we shift the effort levels up one for that model.
-		let reasoning_effort = req.reasoning_effort.map(|e| match (model, e) {
-			(OpenAiModel::Gpt5_5Pro, llms::ReasoningEffort::Low) => {
-				ReasoningEffort::Medium
-			}
-			(OpenAiModel::Gpt5_5Pro, llms::ReasoningEffort::Medium) => {
-				ReasoningEffort::High
-			}
-			(OpenAiModel::Gpt5_5Pro, llms::ReasoningEffort::High) => {
-				ReasoningEffort::XHigh
-			}
-			(_, e) => e.into(),
-		});
 
 		self.request(&Request {
 			input: req.input.iter().cloned().map(Into::into).collect(),
@@ -122,7 +106,7 @@ impl LlmProvider for OpenAi {
 			prompt_cache_key: req.user_id.clone(),
 			safety_identifier: req.user_id.clone(),
 			tools: req.tools.iter().cloned().map(Into::into).collect(),
-			reasoning_effort,
+			reasoning_effort: req.reasoning_effort.map(|e| e.into()),
 		})
 		.await
 		.map_err(Into::into)
@@ -294,23 +278,20 @@ impl From<OpenAiError> for LlmsError {
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
 pub enum OpenAiModel {
-	#[serde(rename = "gpt-5.5")]
-	Gpt5_5,
-	#[serde(rename = "gpt-5.5-pro")]
-	Gpt5_5Pro,
-	#[serde(rename = "gpt-5.4")]
-	Gpt5_4,
-	#[serde(rename = "gpt-5-mini")]
-	Gpt5Mini,
+	#[serde(rename = "gpt-5.6-sol")]
+	Gpt5_6Sol,
+	#[serde(rename = "gpt-5.6-terra")]
+	Gpt5_6Terra,
+	#[serde(rename = "gpt-5.6-luna")]
+	Gpt5_6Luna,
 }
 
 impl OpenAiModel {
 	pub fn as_str(&self) -> &'static str {
 		match self {
-			OpenAiModel::Gpt5_5 => "gpt-5.5",
-			OpenAiModel::Gpt5_5Pro => "gpt-5.5-pro",
-			OpenAiModel::Gpt5_4 => "gpt-5.4",
-			OpenAiModel::Gpt5Mini => "gpt-5-mini",
+			OpenAiModel::Gpt5_6Sol => "gpt-5.6-sol",
+			OpenAiModel::Gpt5_6Terra => "gpt-5.6-terra",
+			OpenAiModel::Gpt5_6Luna => "gpt-5.6-luna",
 		}
 	}
 }
