@@ -4,7 +4,7 @@ pub use error::LlmsError;
 
 use serde_json::Value;
 
-use crate::{anthropic, google, mistral, openai, publicai, xai};
+use crate::{anthropic, google, mistral, openai, openrouter, publicai, xai};
 
 #[derive(Debug, Clone)]
 pub struct Request {
@@ -23,6 +23,8 @@ pub struct Request {
 /// - Anthropic: `output_config.effort` via adaptive thinking.
 ///   Not supported on Claude Haiku 4.5 (ignored).
 /// - Google: `thinkingConfig.thinkingLevel`
+/// - OpenRouter: `reasoning.effort` (normalized across models; models
+///   that don't reason ignore it)
 /// - xAI / Mistral / PublicAi: ignored
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ReasoningEffort {
@@ -81,7 +83,7 @@ pub enum Role {
 	Assistant,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum Model {
 	Gpt5_6Sol,
@@ -106,10 +108,11 @@ pub enum Model {
 
 	// At the moment tool calls are not supported
 	Apertus8bInstruct,
+
+	OpenRouter(Option<String>),
 }
 
 impl Model {
-	/// All models inside this enum.
 	pub const ALL: &'static [Model] = &[
 		Model::Gpt5_6Sol,
 		Model::Gpt5_6Terra,
@@ -127,6 +130,7 @@ impl Model {
 		Model::MistralSmall,
 		Model::Ministral14b,
 		Model::Apertus8bInstruct,
+		Model::OpenRouter(None),
 	];
 
 	/// The model's total context window in tokens (input + output combined).
@@ -159,6 +163,10 @@ impl Model {
 			| Model::Ministral14b => 256_000,
 
 			Model::Apertus8bInstruct => 65_536,
+
+			// The real context window depends on whichever model OpenRouter
+			// routes to; this is only a conservative default.
+			Model::OpenRouter(_) => 128_000,
 		}
 	}
 }
@@ -190,6 +198,7 @@ pub struct LlmsConfig {
 	pub xai_api_key: Option<String>,
 	pub mistral_api_key: Option<String>,
 	pub publicai_api_key: Option<String>,
+	pub openrouter_api_key: Option<String>,
 }
 
 impl LlmsConfig {
@@ -226,6 +235,11 @@ impl LlmsConfig {
 		self.publicai_api_key = api_key.into();
 		self
 	}
+
+	pub fn openrouter(mut self, api_key: impl Into<Option<String>>) -> Self {
+		self.openrouter_api_key = api_key.into();
+		self
+	}
 }
 
 #[derive(Debug, Clone)]
@@ -236,6 +250,7 @@ struct LlmProviders {
 	xai: Option<xai::XAi>,
 	mistral: Option<mistral::Mistral>,
 	publicai: Option<publicai::PublicAi>,
+	openrouter: Option<openrouter::OpenRouter>,
 }
 
 #[derive(Debug, Clone)]
@@ -255,6 +270,9 @@ impl Llms {
 				xai: config.xai_api_key.map(xai::XAi::new),
 				mistral: config.mistral_api_key.map(mistral::Mistral::new),
 				publicai: config.publicai_api_key.map(publicai::PublicAi::new),
+				openrouter: config
+					.openrouter_api_key
+					.map(openrouter::OpenRouter::new),
 			},
 		}
 	}
@@ -263,7 +281,7 @@ impl Llms {
 		&self,
 		req: &Request,
 	) -> Result<ResponseStream, LlmsError> {
-		match req.model {
+		match &req.model {
 			Model::Gpt5_6Sol | Model::Gpt5_6Terra | Model::Gpt5_6Luna => {
 				let llm = self.inner.open_ai.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("OpenAI".into())
@@ -306,6 +324,12 @@ impl Llms {
 			Model::Apertus8bInstruct => {
 				let llm = self.inner.publicai.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("PublicAI".into())
+				})?;
+				LlmProvider::request(llm, req).await.map(Into::into)
+			}
+			Model::OpenRouter(_) => {
+				let llm = self.inner.openrouter.as_ref().ok_or_else(|| {
+					LlmsError::LlmNotConfigured("OpenRouter".into())
 				})?;
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
@@ -413,6 +437,7 @@ enum RespStreamInner {
 	XAi(xai::ResponseStream),
 	Mistral(mistral::ResponseStream),
 	PublicAi(publicai::ResponseStream),
+	OpenRouter(openrouter::ResponseStream),
 }
 
 impl ResponseStream {
@@ -439,6 +464,7 @@ impl ResponseStream {
 				XAi(stream) => LlmResponseStream::next(stream).await,
 				Mistral(stream) => LlmResponseStream::next(stream).await,
 				PublicAi(stream) => LlmResponseStream::next(stream).await,
+				OpenRouter(stream) => LlmResponseStream::next(stream).await,
 			};
 
 			break match ev {
@@ -518,5 +544,11 @@ impl From<mistral::ResponseStream> for ResponseStream {
 impl From<publicai::ResponseStream> for ResponseStream {
 	fn from(stream: publicai::ResponseStream) -> Self {
 		Self::new(RespStreamInner::PublicAi(stream))
+	}
+}
+
+impl From<openrouter::ResponseStream> for ResponseStream {
+	fn from(stream: openrouter::ResponseStream) -> Self {
+		Self::new(RespStreamInner::OpenRouter(stream))
 	}
 }

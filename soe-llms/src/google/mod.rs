@@ -113,7 +113,7 @@ impl LlmProvider for Google {
 		&self,
 		req: &llms::Request,
 	) -> Result<Self::Stream, LlmsError> {
-		let model = match req.model {
+		let model = match &req.model {
 			llms::Model::GeminiPro3_1 => GeminiModel::Pro3_1,
 			llms::Model::GeminiFlash3_5 => GeminiModel::Flash3_5,
 			llms::Model::GeminiFlash3_1Lite => GeminiModel::Flash3_1Lite,

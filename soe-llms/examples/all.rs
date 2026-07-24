@@ -26,13 +26,14 @@ async fn main() {
 			.google(read_env("../.env.google"))
 			.xai(read_env("../.env.xai"))
 			.mistral(read_env("../.env.mistral"))
-			.publicai(read_env("../.env.publicai")),
+			.publicai(read_env("../.env.publicai"))
+			.openrouter(read_env("../.env.openrouter")),
 	);
 
-	for &model in Model::ALL {
+	for model in Model::ALL {
 		eprintln!("\n=== {model:?} ===");
 
-		match run_model(&llms, model).await {
+		match run_model(&llms, model.clone()).await {
 			Ok(()) => {}
 			Err(LlmsError::LlmNotConfigured(provider)) => {
 				eprintln!("skipped: {provider} API key not configured");

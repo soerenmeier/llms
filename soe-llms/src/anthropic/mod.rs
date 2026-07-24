@@ -107,7 +107,7 @@ impl LlmProvider for Anthropic {
 		&self,
 		req: &llms::Request,
 	) -> Result<Self::Stream, LlmsError> {
-		let model = match req.model {
+		let model = match &req.model {
 			llms::Model::ClaudeFable5 => AnthropicModel::Fable5,
 			llms::Model::ClaudeOpus4_8 => AnthropicModel::Opus4_8,
 			llms::Model::ClaudeSonnet5 => AnthropicModel::Sonnet5,

@@ -84,7 +84,7 @@ impl LlmProvider for Mistral {
 			debug!("reasoning_effort is ignored for Mistral");
 		}
 
-		let model = match req.model {
+		let model = match &req.model {
 			llms::Model::MistralLarge => MistralModel::Large,
 			llms::Model::MistralMedium => MistralModel::Medium,
 			llms::Model::MistralSmall => MistralModel::Small,

@@ -1,12 +1,9 @@
 use std::fmt;
 
-use reqwest::{
-	Client, StatusCode,
-	header::{HeaderValue, USER_AGENT},
-};
+use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::{debug, trace};
+use tracing::trace;
 
 use crate::{
 	llms::{self, LlmProvider, LlmResponseStream, LlmsError},
@@ -17,12 +14,12 @@ use crate::{
 };
 
 #[derive(Clone)]
-pub struct PublicAi {
+pub struct OpenRouter {
 	pub client: Client,
 	pub api_key: String,
 }
 
-impl PublicAi {
+impl OpenRouter {
 	pub fn new(api_key: String) -> Self {
 		Self {
 			client: Client::new(),
@@ -33,19 +30,17 @@ impl PublicAi {
 	pub async fn request(
 		&self,
 		req: &Request,
-	) -> Result<ResponseStream, PublicAiError> {
-		if !req.tools.is_empty() {
-			return Err(PublicAiError::InvalidLlmResponse(
-				"tools are not supported by the PublicAI API".into(),
-			));
-		}
-
+	) -> Result<ResponseStream, OpenRouterError> {
 		#[derive(Debug, Serialize)]
 		struct ApiReq<'a> {
 			model: &'a str,
 			messages: &'a Vec<ApiMessage>,
 			#[serde(skip_serializing_if = "Vec::is_empty")]
 			tools: &'a Vec<ApiTool>,
+			#[serde(skip_serializing_if = "Option::is_none")]
+			user: Option<&'a str>,
+			#[serde(skip_serializing_if = "Option::is_none")]
+			reasoning: Option<Reasoning>,
 			stream: bool,
 			stream_options: StreamOptions,
 		}
@@ -56,9 +51,11 @@ impl PublicAi {
 		}
 
 		let api_req = ApiReq {
-			model: req.model.as_str(),
+			model: &req.model,
 			messages: &req.messages,
 			tools: &req.tools,
+			user: req.user.as_deref(),
+			reasoning: req.reasoning_effort.map(|effort| Reasoning { effort }),
 			stream: true,
 			stream_options: StreamOptions {
 				include_usage: true,
@@ -69,9 +66,8 @@ impl PublicAi {
 
 		let resp = self
 			.client
-			.post("https://api.publicai.co/v1/chat/completions")
+			.post("https://openrouter.ai/api/v1/chat/completions")
 			.bearer_auth(&self.api_key)
-			.header(USER_AGENT, HeaderValue::from_static("soe-llms/1.0"))
 			.json(&api_req)
 			.send()
 			.await?;
@@ -79,32 +75,32 @@ impl PublicAi {
 		if !resp.status().is_success() {
 			let status = resp.status();
 			let body = resp.text().await?;
-			return Err(PublicAiError::ResponseError { status, body });
+			return Err(OpenRouterError::ResponseError { status, body });
 		}
 
 		Ok(ResponseStream::new(SseResponse::new(resp)))
 	}
 }
 
-impl fmt::Debug for PublicAi {
+impl fmt::Debug for OpenRouter {
 	fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-		f.debug_struct("PublicAi").field("api_key", &"***").finish()
+		f.debug_struct("OpenRouter")
+			.field("api_key", &"***")
+			.finish()
 	}
 }
 
-impl LlmProvider for PublicAi {
+impl LlmProvider for OpenRouter {
 	type Stream = ResponseStream;
 
 	async fn request(
 		&self,
 		req: &llms::Request,
 	) -> Result<Self::Stream, LlmsError> {
-		if req.reasoning_effort.is_some() {
-			debug!("reasoning_effort is ignored for PublicAi");
-		}
-
 		let model = match &req.model {
-			llms::Model::Apertus8bInstruct => ApertusModel::Apertus8bInstruct,
+			llms::Model::OpenRouter(name) => {
+				name.clone().unwrap_or_else(|| "openrouter/auto".into())
+			}
 			m => unreachable!("unsupported model: {m:?}"),
 		};
 
@@ -122,6 +118,8 @@ impl LlmProvider for PublicAi {
 			messages,
 			model,
 			tools: req.tools.iter().cloned().map(Into::into).collect(),
+			user: Some(req.user_id.clone()).filter(|u| !u.is_empty()),
+			reasoning_effort: req.reasoning_effort.map(Into::into),
 		})
 		.await
 		.map_err(Into::into)
@@ -130,19 +128,38 @@ impl LlmProvider for PublicAi {
 
 pub struct Request {
 	pub messages: Vec<ApiMessage>,
-	pub model: ApertusModel,
+	/// Full OpenRouter model identifier including the organization prefix,
+	/// e.g. `"openai/gpt-5-mini"`, `"anthropic/claude-sonnet-4.6"` or
+	/// `"openrouter/auto"`.
+	pub model: String,
 	pub tools: Vec<ApiTool>,
+	/// Stable identifier for the end-user, used by OpenRouter to detect and
+	/// prevent abuse.
+	pub user: Option<String>,
+	/// OpenRouter normalizes this across providers via its unified
+	/// `reasoning` parameter; models that don't reason ignore it.
+	pub reasoning_effort: Option<ReasoningEffort>,
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum ApertusModel {
-	Apertus8bInstruct,
+#[derive(Debug, Serialize)]
+struct Reasoning {
+	effort: ReasoningEffort,
 }
 
-impl ApertusModel {
-	pub fn as_str(&self) -> &'static str {
-		match self {
-			ApertusModel::Apertus8bInstruct => "swiss-ai/apertus-8b-instruct",
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ReasoningEffort {
+	Low,
+	Medium,
+	High,
+}
+
+impl From<llms::ReasoningEffort> for ReasoningEffort {
+	fn from(e: llms::ReasoningEffort) -> Self {
+		match e {
+			llms::ReasoningEffort::Low => ReasoningEffort::Low,
+			llms::ReasoningEffort::Medium => ReasoningEffort::Medium,
+			llms::ReasoningEffort::High => ReasoningEffort::High,
 		}
 	}
 }
@@ -247,8 +264,8 @@ impl From<llms::Tool> for ApiTool {
 pub struct Chunk {
 	#[serde(default)]
 	pub choices: Vec<ChunkChoice>,
-	/// Present on the final chunk when the upstream honors
-	/// `stream_options.include_usage`. Older deployments may omit it.
+	/// Present exactly once on the final chunk before `[DONE]` (that chunk
+	/// has an empty `choices` array).
 	pub usage: Option<ApiUsage>,
 	/// Present when the upstream emits a mid-stream error frame instead of
 	/// a normal completion chunk. OpenAI-compatible APIs wrap the error in
@@ -272,6 +289,9 @@ pub struct ApiUsage {
 #[derive(Debug, Deserialize)]
 pub struct ChunkChoice {
 	pub delta: Delta,
+	/// OpenRouter can also report a per-choice error (e.g. when the
+	/// upstream provider failed mid-generation).
+	pub error: Option<ApiErrorBody>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -296,7 +316,7 @@ pub struct ToolCallFunctionDelta {
 }
 
 #[derive(Debug, thiserror::Error)]
-pub enum PublicAiError {
+pub enum OpenRouterError {
 	#[error("Invalid LLM response: {0}")]
 	InvalidLlmResponse(String),
 	#[error("No output in response")]
@@ -307,30 +327,30 @@ pub enum PublicAiError {
 	ReqwestError(#[from] reqwest::Error),
 }
 
-impl From<PublicAiError> for LlmsError {
-	fn from(e: PublicAiError) -> Self {
+impl From<OpenRouterError> for LlmsError {
+	fn from(e: OpenRouterError) -> Self {
 		match e {
-			PublicAiError::InvalidLlmResponse(msg) => LlmsError::Response {
+			OpenRouterError::InvalidLlmResponse(msg) => LlmsError::Response {
 				status: StatusCode::OK,
 				body: msg,
 			},
-			PublicAiError::NoOutput => LlmsError::Response {
+			OpenRouterError::NoOutput => LlmsError::Response {
 				status: StatusCode::OK,
 				body: "no output in response".into(),
 			},
-			PublicAiError::ResponseError { status, body } => {
+			OpenRouterError::ResponseError { status, body } => {
 				LlmsError::Response { status, body }
 			}
-			PublicAiError::ReqwestError(e) => LlmsError::Reqwest(e),
+			OpenRouterError::ReqwestError(e) => LlmsError::Reqwest(e),
 		}
 	}
 }
 
-impl From<SseError> for PublicAiError {
+impl From<SseError> for OpenRouterError {
 	fn from(e: SseError) -> Self {
 		match e {
-			SseError::Reqwest(e) => PublicAiError::ReqwestError(e),
-			other => PublicAiError::InvalidLlmResponse(other.to_string()),
+			SseError::Reqwest(e) => OpenRouterError::ReqwestError(e),
+			other => OpenRouterError::InvalidLlmResponse(other.to_string()),
 		}
 	}
 }
@@ -350,8 +370,8 @@ pub struct ResponseStream {
 	/// Per-index tool call state. The index matches the `index` field in the
 	/// streaming delta and grows on demand.
 	tool_calls: Vec<ToolCallAccumulator>,
-	/// Token usage from the final stream chunk (when reported by the upstream).
-	/// `None` until that chunk arrives.
+	/// Token usage from the final stream chunk. `None` until that chunk
+	/// arrives.
 	usage: Option<llms::Usage>,
 	done: bool,
 }
@@ -375,7 +395,7 @@ impl ResponseStream {
 		}
 	}
 
-	fn build_response(&mut self) -> Result<llms::Response, PublicAiError> {
+	fn build_response(&mut self) -> Result<llms::Response, OpenRouterError> {
 		let mut output =
 			Vec::with_capacity(self.tool_calls.len() + 1 /* text */);
 
@@ -385,7 +405,7 @@ impl ResponseStream {
 
 		for tc in self.tool_calls.drain(..) {
 			let input = serde_json::from_str(&tc.arguments).map_err(|e| {
-				PublicAiError::InvalidLlmResponse(format!(
+				OpenRouterError::InvalidLlmResponse(format!(
 					"invalid tool call arguments JSON for '{}': {e}",
 					tc.name
 				))
@@ -400,11 +420,11 @@ impl ResponseStream {
 		}
 
 		if output.is_empty() {
-			return Err(PublicAiError::NoOutput);
+			return Err(OpenRouterError::NoOutput);
 		}
 
 		let usage = self.usage.take().ok_or_else(|| {
-			PublicAiError::InvalidLlmResponse(
+			OpenRouterError::InvalidLlmResponse(
 				"missing usage in response".into(),
 			)
 		})?;
@@ -435,11 +455,11 @@ impl LlmResponseStream for ResponseStream {
 				}
 			};
 
-			trace!("publicai chunk: {chunk:?}");
+			trace!("openrouter chunk: {chunk:?}");
 
 			if let Some(err) = chunk.error {
 				self.done = true;
-				return Some(Err(PublicAiError::ResponseError {
+				return Some(Err(OpenRouterError::ResponseError {
 					status: StatusCode::OK,
 					body: err.message,
 				}
@@ -457,6 +477,15 @@ impl LlmResponseStream for ResponseStream {
 				Some(c) => c,
 				None => continue,
 			};
+
+			if let Some(err) = choice.error {
+				self.done = true;
+				return Some(Err(OpenRouterError::ResponseError {
+					status: StatusCode::OK,
+					body: err.message,
+				}
+				.into()));
+			}
 
 			if let Some(tc_deltas) = choice.delta.tool_calls {
 				for delta in tc_deltas {

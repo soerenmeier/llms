@@ -5,3 +5,4 @@
 /.env.xai
 /.env.mistral
 /.env.publicai
+/.env.openrouter

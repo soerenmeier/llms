@@ -89,7 +89,7 @@ impl LlmProvider for XAi {
 		&self,
 		req: &llms::Request,
 	) -> Result<Self::Stream, LlmsError> {
-		let model = match req.model {
+		let model = match &req.model {
 			llms::Model::Grok4_5 => XAiModel::Grok4_5,
 			m => unreachable!("unsupported model: {m:?}"),
 		};
