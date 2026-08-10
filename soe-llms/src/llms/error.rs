@@ -15,4 +15,6 @@ pub enum LlmsError {
 	Reqwest(#[from] reqwest::Error),
 	#[error("IO error: {0}")]
 	Io(#[from] io::Error),
+	#[error("stream ended before a response Completed event was received")]
+	IncompleteStream,
 }

@@ -476,13 +476,8 @@ impl ResponseStream {
 					continue;
 				}
 				Some(Err(e)) => Some(Err(e)),
-				None => {
-					assert!(
-						self.response.is_some(),
-						"response Completed event not received"
-					);
-					None
-				}
+				None if self.response.is_some() => None,
+				None => Some(Err(LlmsError::IncompleteStream)),
 			};
 		}
 	}
