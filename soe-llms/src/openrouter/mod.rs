@@ -1,5 +1,6 @@
 use std::fmt;
 
+use base64::Engine;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -62,7 +63,11 @@ impl OpenRouter {
 			},
 		};
 
-		trace!("{:?}", serde_json::to_string(&api_req));
+		trace!(
+			"openrouter request: {} messages, {} tools",
+			req.messages.len(),
+			req.tools.len()
+		);
 
 		let resp = self
 			.client
@@ -173,6 +178,14 @@ pub enum ApiMessage {
 	User {
 		content: String,
 	},
+	#[serde(rename = "user")]
+	UserParts {
+		content: Vec<ApiContentPart>,
+	},
+	#[serde(rename = "assistant")]
+	AssistantParts {
+		content: Vec<ApiContentPart>,
+	},
 	Assistant {
 		#[serde(skip_serializing_if = "Option::is_none")]
 		content: Option<String>,
@@ -185,6 +198,34 @@ pub enum ApiMessage {
 	},
 }
 
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ApiContentPart {
+	Text { text: String },
+	ImageUrl { image_url: ApiImageUrl },
+}
+
+#[derive(Debug, Serialize)]
+pub struct ApiImageUrl {
+	url: String,
+}
+
+impl From<llms::ContentPart> for ApiContentPart {
+	fn from(part: llms::ContentPart) -> Self {
+		match part {
+			llms::ContentPart::Text { text } => Self::Text { text },
+			llms::ContentPart::Image { media_type, data } => Self::ImageUrl {
+				image_url: ApiImageUrl {
+					url: format!(
+						"data:{media_type};base64,{}",
+						base64::engine::general_purpose::STANDARD.encode(data)
+					),
+				},
+			},
+		}
+	}
+}
+
 impl From<llms::Input> for ApiMessage {
 	fn from(input: llms::Input) -> Self {
 		match input {
@@ -195,6 +236,16 @@ impl From<llms::Input> for ApiMessage {
 					tool_calls: None,
 				},
 			},
+			llms::Input::Message { role, parts } => {
+				let content = parts.into_iter().map(Into::into).collect();
+
+				match role {
+					llms::Role::User => ApiMessage::UserParts { content },
+					llms::Role::Assistant => {
+						ApiMessage::AssistantParts { content }
+					}
+				}
+			}
 			llms::Input::ToolCall {
 				id, name, input, ..
 			} => ApiMessage::Assistant {

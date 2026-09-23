@@ -7,6 +7,8 @@ use reqwest::StatusCode;
 pub enum LlmsError {
 	#[error("Llm not configured: {0}")]
 	LlmNotConfigured(String),
+	#[error("Invalid input: {0}")]
+	InvalidInput(String),
 	#[error("JSON deserialization error: {0}")]
 	Json(#[from] serde_json::Error),
 	#[error("Response error: status {status}, body {body}")]

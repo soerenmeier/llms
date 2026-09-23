@@ -1,5 +1,6 @@
 use std::fmt;
 
+use base64::Engine;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -71,7 +72,12 @@ impl Anthropic {
 			stream: true,
 		};
 
-		trace!("{:?}", serde_json::to_string(&api_req));
+		trace!(
+			model = req.model.as_str(),
+			message_count = req.messages.len(),
+			tool_count = req.tools.len(),
+			"anthropic request"
+		);
 
 		let resp = self
 			.client
@@ -200,6 +206,31 @@ impl From<llms::Input> for ApiMessage {
 				role: role.into(),
 				content: ApiMessageContent::Text(content),
 			},
+			llms::Input::Message { role, parts } => {
+				let mut blocks = Vec::with_capacity(parts.len());
+
+				for part in parts {
+					blocks.push(match part {
+						llms::ContentPart::Text { text } => {
+							ApiContentBlock::Text { text }
+						}
+						llms::ContentPart::Image { media_type, data } => {
+							ApiContentBlock::Image {
+								source: ApiImageSource::Base64 {
+									media_type,
+									data: base64::engine::general_purpose::STANDARD
+										.encode(data),
+								},
+							}
+						}
+					});
+				}
+
+				ApiMessage {
+					role: role.into(),
+					content: ApiMessageContent::Blocks(blocks),
+				}
+			}
 			llms::Input::ToolCall {
 				id, name, input, ..
 			} => ApiMessage {
@@ -250,6 +281,9 @@ pub enum ApiContentBlock {
 	Text {
 		text: String,
 	},
+	Image {
+		source: ApiImageSource,
+	},
 	ToolUse {
 		id: String,
 		name: String,
@@ -259,6 +293,12 @@ pub enum ApiContentBlock {
 		tool_use_id: String,
 		content: String,
 	},
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ApiImageSource {
+	Base64 { media_type: String, data: String },
 }
 
 #[derive(Debug, Serialize)]
@@ -636,5 +676,58 @@ impl LlmResponseStream for ResponseStream {
 				_ => continue,
 			}
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use serde_json::json;
+
+	#[test]
+	fn serializes_mixed_message_parts() {
+		let message = ApiMessage::from(llms::Input::Message {
+			role: llms::Role::User,
+			parts: vec![
+				llms::ContentPart::Text {
+					text: "What is this?".into(),
+				},
+				llms::ContentPart::Image {
+					media_type: "image/png".into(),
+					data: vec![0, 1, 2, 255],
+				},
+			],
+		});
+
+		assert_eq!(
+			serde_json::to_value(message).unwrap(),
+			json!({
+				"role": "user",
+				"content": [
+					{ "type": "text", "text": "What is this?" },
+					{
+						"type": "image",
+						"source": {
+							"type": "base64",
+							"media_type": "image/png",
+							"data": "AAEC/w=="
+						}
+					}
+				]
+			})
+		);
+	}
+
+	#[test]
+	fn text_input_still_serializes_as_string() {
+		let message = ApiMessage::from(llms::Input::Text {
+			role: llms::Role::Assistant,
+			content: "hello".into(),
+		});
+
+		assert_eq!(
+			serde_json::to_value(message).unwrap(),
+			json!({ "role": "assistant", "content": "hello" })
+		);
 	}
 }

@@ -1,5 +1,6 @@
 use std::fmt;
 
+use base64::Engine;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -74,7 +75,12 @@ impl Google {
 			generation_config,
 		};
 
-		trace!("{:?}", serde_json::to_string(&api_req));
+		trace!(
+			model = req.model.as_str(),
+			message_count = req.contents.len(),
+			tool_count = req.tools.len(),
+			"google request"
+		);
 
 		let url = format!(
 			"{}/{}:streamGenerateContent?alt=sse",
@@ -204,6 +210,29 @@ impl From<llms::Input> for ApiContent {
 				role: role.into(),
 				parts: vec![ApiPart::Text { text: content }],
 			},
+			llms::Input::Message { role, parts } => {
+				let mut api_parts = Vec::with_capacity(parts.len());
+
+				for part in parts {
+					api_parts.push(match part {
+						llms::ContentPart::Text { text } => ApiPart::Text { text },
+						llms::ContentPart::Image { media_type, data } => {
+							ApiPart::InlineData {
+								inline_data: ApiInlineData {
+									mime_type: media_type,
+									data: base64::engine::general_purpose::STANDARD
+										.encode(data),
+								},
+							}
+						}
+					});
+				}
+
+				ApiContent {
+					role: role.into(),
+					parts: api_parts,
+				}
+			}
 			llms::Input::ToolCall {
 				name,
 				input,
@@ -239,6 +268,9 @@ pub enum ApiPart {
 	Text {
 		text: String,
 	},
+	InlineData {
+		inline_data: ApiInlineData,
+	},
 	FunctionCall {
 		function_call: ApiFunctionCall,
 		/// Gemini 3 thought signature – must be echoed back exactly as received.
@@ -249,6 +281,13 @@ pub enum ApiPart {
 	FunctionResponse {
 		function_response: ApiFunctionResponse,
 	},
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ApiInlineData {
+	pub mime_type: String,
+	pub data: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -555,5 +594,56 @@ impl LlmResponseStream for ResponseStream {
 				}));
 			}
 		}
+	}
+}
+
+#[cfg(test)]
+mod tests {
+	use super::*;
+	use serde_json::json;
+
+	#[test]
+	fn serializes_mixed_message_parts() {
+		let content = ApiContent::from(llms::Input::Message {
+			role: llms::Role::User,
+			parts: vec![
+				llms::ContentPart::Text {
+					text: "What is this?".into(),
+				},
+				llms::ContentPart::Image {
+					media_type: "image/png".into(),
+					data: vec![0, 1, 2, 255],
+				},
+			],
+		});
+
+		assert_eq!(
+			serde_json::to_value(content).unwrap(),
+			json!({
+				"role": "user",
+				"parts": [
+					{ "text": "What is this?" },
+					{
+						"inlineData": {
+							"mimeType": "image/png",
+							"data": "AAEC/w=="
+						}
+					}
+				]
+			})
+		);
+	}
+
+	#[test]
+	fn text_input_still_serializes_as_text_part() {
+		let content = ApiContent::from(llms::Input::Text {
+			role: llms::Role::Assistant,
+			content: "hello".into(),
+		});
+
+		assert_eq!(
+			serde_json::to_value(content).unwrap(),
+			json!({ "role": "model", "parts": [{ "text": "hello" }] })
+		);
 	}
 }

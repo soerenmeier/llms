@@ -39,6 +39,12 @@ pub enum Input {
 		role: Role,
 		content: String,
 	},
+	/// A message with ordered text and image parts. Images are supported in
+	/// user messages; text-only messages can continue using [`Input::Text`].
+	Message {
+		role: Role,
+		parts: Vec<ContentPart>,
+	},
 	ToolCall {
 		id: String,
 		name: String,
@@ -52,6 +58,19 @@ pub enum Input {
 	ToolCallOutput {
 		id: String,
 		output: String,
+	},
+}
+
+/// Parts of a multimodal input message.
+#[derive(Debug, Clone)]
+pub enum ContentPart {
+	Text {
+		text: String,
+	},
+	/// Raw image bytes. `media_type` is the image's MIME type, e.g. `image/jpeg`.
+	Image {
+		media_type: String,
+		data: Vec<u8>,
 	},
 }
 
@@ -130,6 +149,28 @@ impl Model {
 		Model::MistralSmall,
 		Model::Ministral14b,
 		Model::Apertus8bInstruct,
+		Model::OpenRouter(None),
+	];
+
+	/// Built-in models that can accept images. OpenRouter's auto route selects
+	/// a vision-capable model for image requests; custom routes depend on the
+	/// selected model.
+	pub const ALL_IMAGES: &'static [Model] = &[
+		Model::Gpt6Astra,
+		Model::Gpt6Sol,
+		Model::Gpt6Luna,
+		Model::ClaudeFable5_1,
+		Model::ClaudeOpus5_5,
+		Model::ClaudeSonnet5,
+		Model::ClaudeHaiku4_5,
+		Model::GeminiPro3_1,
+		Model::GeminiFlash3_8,
+		Model::GeminiFlash3_5Lite,
+		Model::Grok4_7,
+		Model::MistralLarge,
+		Model::MistralMedium,
+		Model::MistralSmall,
+		Model::Ministral14b,
 		Model::OpenRouter(None),
 	];
 
@@ -279,6 +320,27 @@ impl Llms {
 		&self,
 		req: &Request,
 	) -> Result<ResponseStream, LlmsError> {
+		for input in &req.input {
+			if let Input::Message { role, parts } = input {
+				if parts
+					.iter()
+					.any(|part| matches!(part, ContentPart::Image { .. }))
+				{
+					if matches!(role, Role::Assistant) {
+						return Err(LlmsError::InvalidInput(
+							"image inputs require a user message".into(),
+						));
+					}
+
+					if matches!(req.model, Model::Apertus8bInstruct) {
+						return Err(LlmsError::InvalidInput(
+							"image inputs are not supported by Apertus8bInstruct".into(),
+						));
+					}
+				}
+			}
+		}
+
 		match &req.model {
 			Model::Gpt6Astra | Model::Gpt6Sol | Model::Gpt6Luna => {
 				let llm = self.inner.open_ai.as_ref().ok_or_else(|| {

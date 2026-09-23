@@ -1196,6 +1196,7 @@ dependencies = [
 name = "soe-llms"
 version = "0.0.13"
 dependencies = [
+ "base64",
  "bytes",
  "futures",
  "reqwest",

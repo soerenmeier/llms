@@ -1,5 +1,6 @@
 use std::fmt;
 
+use base64::{Engine as _, engine::general_purpose::STANDARD};
 use reqwest::{
 	Client, StatusCode,
 	header::{ACCEPT, HeaderValue},
@@ -57,7 +58,12 @@ impl OpenAi {
 			stream: true,
 		};
 
-		trace!("{:?}", req);
+		trace!(
+			model = req.model.as_str(),
+			input_items = req.input.len(),
+			tools = req.tools.len(),
+			"OpenAI request"
+		);
 
 		let resp = self
 			.client
@@ -206,6 +212,27 @@ impl From<llms::Input> for Input {
 					content,
 				})
 			}
+			llms::Input::Message { role, parts } => {
+				Input::Message(InputMessage::Multimodal {
+					role: role.into(),
+					content: parts
+						.into_iter()
+						.map(|part| match part {
+							llms::ContentPart::Text { text } => {
+								InputMessageContent::InputText { text }
+							}
+							llms::ContentPart::Image { media_type, data } => {
+								InputMessageContent::InputImage {
+									image_url: format!(
+										"data:{media_type};base64,{}",
+										STANDARD.encode(data)
+									),
+								}
+							}
+						})
+						.collect(),
+				})
+			}
 			llms::Input::ToolCall {
 				id, name, input, ..
 			} => Input::FunctionCall(FunctionCall {
@@ -231,7 +258,21 @@ impl From<llms::Input> for Input {
 pub enum InputMessage {
 	// first because of serde untagged priority
 	Output(OutputMessage),
-	Input { role: Role, content: String },
+	Input {
+		role: Role,
+		content: String,
+	},
+	Multimodal {
+		role: Role,
+		content: Vec<InputMessageContent>,
+	},
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum InputMessageContent {
+	InputText { text: String },
+	InputImage { image_url: String },
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, Copy)]
