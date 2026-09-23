@@ -90,7 +90,7 @@ impl LlmProvider for XAi {
 		req: &llms::Request,
 	) -> Result<Self::Stream, LlmsError> {
 		let model = match &req.model {
-			llms::Model::Grok4_5 => XAiModel::Grok4_5,
+			llms::Model::Grok4_7 => XAiModel::Grok4_7,
 			m => unreachable!("unsupported model: {m:?}"),
 		};
 
@@ -128,13 +128,13 @@ pub struct Request {
 
 #[derive(Debug, Clone, Copy)]
 pub enum XAiModel {
-	Grok4_5,
+	Grok4_7,
 }
 
 impl XAiModel {
 	pub fn as_str(&self) -> &'static str {
 		match self {
-			XAiModel::Grok4_5 => "grok-4.5",
+			XAiModel::Grok4_7 => "grok-4.7",
 		}
 	}
 }

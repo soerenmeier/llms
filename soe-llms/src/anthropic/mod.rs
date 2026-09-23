@@ -108,8 +108,8 @@ impl LlmProvider for Anthropic {
 		req: &llms::Request,
 	) -> Result<Self::Stream, LlmsError> {
 		let model = match &req.model {
-			llms::Model::ClaudeFable5 => AnthropicModel::Fable5,
-			llms::Model::ClaudeOpus4_8 => AnthropicModel::Opus4_8,
+			llms::Model::ClaudeFable5_1 => AnthropicModel::Fable5_1,
+			llms::Model::ClaudeOpus5_5 => AnthropicModel::Opus5_5,
 			llms::Model::ClaudeSonnet5 => AnthropicModel::Sonnet5,
 			llms::Model::ClaudeHaiku4_5 => AnthropicModel::Haiku4_5,
 			m => unreachable!("unsupported model: {m:?}"),
@@ -282,8 +282,8 @@ impl From<llms::Tool> for ApiTool {
 
 #[derive(Debug, Clone, Copy)]
 pub enum AnthropicModel {
-	Fable5,
-	Opus4_8,
+	Fable5_1,
+	Opus5_5,
 	Sonnet5,
 	Haiku4_5,
 }
@@ -291,8 +291,8 @@ pub enum AnthropicModel {
 impl AnthropicModel {
 	pub fn as_str(&self) -> &'static str {
 		match self {
-			AnthropicModel::Fable5 => "claude-fable-5",
-			AnthropicModel::Opus4_8 => "claude-opus-4-8",
+			AnthropicModel::Fable5_1 => "claude-fable-5-1",
+			AnthropicModel::Opus5_5 => "claude-opus-5-5",
 			AnthropicModel::Sonnet5 => "claude-sonnet-5",
 			AnthropicModel::Haiku4_5 => "claude-haiku-4-5",
 		}

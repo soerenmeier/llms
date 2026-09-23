@@ -86,20 +86,20 @@ pub enum Role {
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum Model {
-	Gpt5_6Sol,
-	Gpt5_6Terra,
-	Gpt5_6Luna,
+	Gpt6Astra,
+	Gpt6Sol,
+	Gpt6Luna,
 
-	ClaudeFable5,
-	ClaudeOpus4_8,
+	ClaudeFable5_1,
+	ClaudeOpus5_5,
 	ClaudeSonnet5,
 	ClaudeHaiku4_5,
 
 	GeminiPro3_1,
-	GeminiFlash3_5,
-	GeminiFlash3_1Lite,
+	GeminiFlash3_8,
+	GeminiFlash3_5Lite,
 
-	Grok4_5,
+	Grok4_7,
 
 	MistralLarge,
 	MistralMedium,
@@ -114,17 +114,17 @@ pub enum Model {
 
 impl Model {
 	pub const ALL: &'static [Model] = &[
-		Model::Gpt5_6Sol,
-		Model::Gpt5_6Terra,
-		Model::Gpt5_6Luna,
-		Model::ClaudeFable5,
-		Model::ClaudeOpus4_8,
+		Model::Gpt6Astra,
+		Model::Gpt6Sol,
+		Model::Gpt6Luna,
+		Model::ClaudeFable5_1,
+		Model::ClaudeOpus5_5,
 		Model::ClaudeSonnet5,
 		Model::ClaudeHaiku4_5,
 		Model::GeminiPro3_1,
-		Model::GeminiFlash3_5,
-		Model::GeminiFlash3_1Lite,
-		Model::Grok4_5,
+		Model::GeminiFlash3_8,
+		Model::GeminiFlash3_5Lite,
+		Model::Grok4_7,
 		Model::MistralLarge,
 		Model::MistralMedium,
 		Model::MistralSmall,
@@ -142,20 +142,18 @@ impl Model {
 	/// [`Usage::fraction_used`].
 	pub fn context_window(&self) -> u32 {
 		match self {
-			Model::Gpt5_6Sol | Model::Gpt5_6Terra | Model::Gpt5_6Luna => {
-				1_050_000
-			}
+			Model::Gpt6Astra | Model::Gpt6Sol | Model::Gpt6Luna => 1_050_000,
 
-			Model::ClaudeFable5
-			| Model::ClaudeOpus4_8
+			Model::ClaudeFable5_1
+			| Model::ClaudeOpus5_5
 			| Model::ClaudeSonnet5 => 1_000_000,
 			Model::ClaudeHaiku4_5 => 200_000,
 
 			Model::GeminiPro3_1
-			| Model::GeminiFlash3_5
-			| Model::GeminiFlash3_1Lite => 1_048_576,
+			| Model::GeminiFlash3_8
+			| Model::GeminiFlash3_5Lite => 1_048_576,
 
-			Model::Grok4_5 => 500_000,
+			Model::Grok4_7 => 500_000,
 
 			Model::MistralLarge
 			| Model::MistralMedium
@@ -282,14 +280,14 @@ impl Llms {
 		req: &Request,
 	) -> Result<ResponseStream, LlmsError> {
 		match &req.model {
-			Model::Gpt5_6Sol | Model::Gpt5_6Terra | Model::Gpt5_6Luna => {
+			Model::Gpt6Astra | Model::Gpt6Sol | Model::Gpt6Luna => {
 				let llm = self.inner.open_ai.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("OpenAI".into())
 				})?;
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
-			Model::ClaudeFable5
-			| Model::ClaudeOpus4_8
+			Model::ClaudeFable5_1
+			| Model::ClaudeOpus5_5
 			| Model::ClaudeSonnet5
 			| Model::ClaudeHaiku4_5 => {
 				let llm = self.inner.anthropic.as_ref().ok_or_else(|| {
@@ -298,14 +296,14 @@ impl Llms {
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
 			Model::GeminiPro3_1
-			| Model::GeminiFlash3_5
-			| Model::GeminiFlash3_1Lite => {
+			| Model::GeminiFlash3_8
+			| Model::GeminiFlash3_5Lite => {
 				let llm = self.inner.google.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("Google".into())
 				})?;
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
-			Model::Grok4_5 => {
+			Model::Grok4_7 => {
 				let llm =
 					self.inner.xai.as_ref().ok_or_else(|| {
 						LlmsError::LlmNotConfigured("xAI".into())
