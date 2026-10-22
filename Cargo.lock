@@ -1194,7 +1194,7 @@ dependencies = [
 
 [[package]]
 name = "soe-llms"
-version = "0.0.14"
+version = "0.0.15"
 dependencies = [
  "base64",
  "bytes",
