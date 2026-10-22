@@ -529,6 +529,7 @@ impl LlmResponseStream for ResponseStream {
 				self.usage = Some(llms::Usage {
 					input_tokens: usage.prompt_tokens,
 					output_tokens: usage.completion_tokens,
+					..Default::default()
 				});
 			}
 

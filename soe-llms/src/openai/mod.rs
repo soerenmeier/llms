@@ -427,6 +427,7 @@ impl TryFrom<Response> for llms::Response {
 		let usage = llms::Usage {
 			input_tokens: usage.input_tokens,
 			output_tokens: usage.output_tokens,
+			..Default::default()
 		};
 
 		Ok(llms::Response {

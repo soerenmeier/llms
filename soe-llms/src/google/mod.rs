@@ -539,6 +539,7 @@ impl LlmResponseStream for ResponseStream {
 				self.usage = Some(llms::Usage {
 					input_tokens: usage.prompt_token_count,
 					output_tokens: usage.candidates_token_count,
+					..Default::default()
 				});
 			}
 

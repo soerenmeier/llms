@@ -42,6 +42,8 @@ impl OpenRouter {
 			user: Option<&'a str>,
 			#[serde(skip_serializing_if = "Option::is_none")]
 			reasoning: Option<Reasoning>,
+			#[serde(skip_serializing_if = "Option::is_none")]
+			cache_control: Option<CacheControl>,
 			stream: bool,
 			stream_options: StreamOptions,
 		}
@@ -57,6 +59,14 @@ impl OpenRouter {
 			tools: &req.tools,
 			user: req.user.as_deref(),
 			reasoning: req.reasoning_effort.map(|effort| Reasoning { effort }),
+			// Anthropic models only cache with it, OpenRouter then moves the
+			// breakpoint to the end of each request, so a growing
+			// conversation reads its earlier part from the cache. Other
+			// providers cache by themselves.
+			cache_control: req
+				.model
+				.starts_with("anthropic/")
+				.then_some(CacheControl { kind: "ephemeral" }),
 			stream: true,
 			stream_options: StreamOptions {
 				include_usage: true,
@@ -144,6 +154,12 @@ pub struct Request {
 	/// OpenRouter normalizes this across providers via its unified
 	/// `reasoning` parameter; models that don't reason ignore it.
 	pub reasoning_effort: Option<ReasoningEffort>,
+}
+
+#[derive(Debug, Serialize)]
+struct CacheControl {
+	#[serde(rename = "type")]
+	kind: &'static str,
 }
 
 #[derive(Debug, Serialize)]
@@ -335,6 +351,16 @@ pub struct ApiUsage {
 	pub prompt_tokens: u32,
 	#[serde(default)]
 	pub completion_tokens: u32,
+	#[serde(default)]
+	pub prompt_tokens_details: Option<ApiPromptTokensDetails>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ApiPromptTokensDetails {
+	#[serde(default)]
+	pub cached_tokens: u32,
+	#[serde(default)]
+	pub cache_write_tokens: u32,
 }
 
 #[derive(Debug, Deserialize)]
@@ -518,9 +544,16 @@ impl LlmResponseStream for ResponseStream {
 			}
 
 			if let Some(usage) = chunk.usage {
+				let details = usage.prompt_tokens_details;
 				self.usage = Some(llms::Usage {
 					input_tokens: usage.prompt_tokens,
 					output_tokens: usage.completion_tokens,
+					cached_input_tokens: details
+						.as_ref()
+						.map_or(0, |d| d.cached_tokens),
+					cache_write_tokens: details
+						.as_ref()
+						.map_or(0, |d| d.cache_write_tokens),
 				});
 			}
 

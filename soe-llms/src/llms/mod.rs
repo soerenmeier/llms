@@ -439,8 +439,17 @@ pub struct Response {
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Usage {
+	/// All input tokens, including the cached ones below.
 	pub input_tokens: u32,
 	pub output_tokens: u32,
+	/// Input tokens read from the prompt cache, providers bill them for a
+	/// fraction of the normal input price. Only reported by OpenRouter for
+	/// now, else 0.
+	pub cached_input_tokens: u32,
+	/// Input tokens written to the prompt cache, Anthropic bills them for
+	/// a bit more than normal input. Only reported by OpenRouter for now,
+	/// else 0.
+	pub cache_write_tokens: u32,
 }
 
 impl Usage {
