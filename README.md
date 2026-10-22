@@ -2,8 +2,7 @@
 
 Crates for working with large language models (LLMs) in Rust.
 
-These are opiniated implementations and are intended for agent use
-no image support is planned.
+These are opiniated implementations and are intended for agent use.
 
 ## soe-llms
 
@@ -14,20 +13,20 @@ Currently the following models are supported:
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub enum Model {
-	Gpt5_6Sol,
-	Gpt5_6Terra,
-	Gpt5_6Luna,
+	Gpt6Astra,
+	Gpt6_1Sol,
+	Gpt6Luna,
 
-	ClaudeFable5,
-	ClaudeOpus4_8,
-	ClaudeSonnet5,
-	ClaudeHaiku4_5,
+	ClaudeFable5_1,
+	ClaudeOpus5_5,
+	ClaudeSonnet5_5,
+	ClaudeHaiku5_5,
 
-	GeminiPro3_1,
-	GeminiFlash3_5,
-	GeminiFlash3_1Lite,
+	Gemini4Argon,
+	GeminiFlash3_8,
+	GeminiFlash3_5Lite,
 
-	Grok4_5,
+	Grok4_7,
 
 	MistralLarge,
 	MistralMedium,

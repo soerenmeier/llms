@@ -4,7 +4,7 @@ use base64::Engine;
 use reqwest::{Client, StatusCode};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tracing::{debug, trace};
+use tracing::trace;
 
 use crate::{
 	llms::{self, LlmProvider, LlmResponseStream, LlmsError},
@@ -116,8 +116,8 @@ impl LlmProvider for Anthropic {
 		let model = match &req.model {
 			llms::Model::ClaudeFable5_1 => AnthropicModel::Fable5_1,
 			llms::Model::ClaudeOpus5_5 => AnthropicModel::Opus5_5,
-			llms::Model::ClaudeSonnet5 => AnthropicModel::Sonnet5,
-			llms::Model::ClaudeHaiku4_5 => AnthropicModel::Haiku4_5,
+			llms::Model::ClaudeSonnet5_5 => AnthropicModel::Sonnet5_5,
+			llms::Model::ClaudeHaiku5_5 => AnthropicModel::Haiku5_5,
 			m => unreachable!("unsupported model: {m:?}"),
 		};
 
@@ -127,17 +127,11 @@ impl LlmProvider for Anthropic {
 			Some(req.instructions.clone())
 		};
 
-		// Haiku 4.5 doesn't support adaptive thinking; silently ignore.
-		let effort = match (model, req.reasoning_effort) {
-			(AnthropicModel::Haiku4_5, Some(_)) => {
-				debug!("reasoning_effort is ignored for Claude Haiku 4.5");
-				None
-			}
-			(_, None) => None,
-			(_, Some(llms::ReasoningEffort::Low)) => Some(Effort::Low),
-			(_, Some(llms::ReasoningEffort::Medium)) => Some(Effort::Medium),
-			(_, Some(llms::ReasoningEffort::High)) => Some(Effort::High),
-		};
+		let effort = req.reasoning_effort.map(|e| match e {
+			llms::ReasoningEffort::Low => Effort::Low,
+			llms::ReasoningEffort::Medium => Effort::Medium,
+			llms::ReasoningEffort::High => Effort::High,
+		});
 
 		// Thinking tokens count toward max_tokens; give the model headroom
 		// for both reasoning and the final answer when effort is set.
@@ -324,8 +318,8 @@ impl From<llms::Tool> for ApiTool {
 pub enum AnthropicModel {
 	Fable5_1,
 	Opus5_5,
-	Sonnet5,
-	Haiku4_5,
+	Sonnet5_5,
+	Haiku5_5,
 }
 
 impl AnthropicModel {
@@ -333,8 +327,8 @@ impl AnthropicModel {
 		match self {
 			AnthropicModel::Fable5_1 => "claude-fable-5-1",
 			AnthropicModel::Opus5_5 => "claude-opus-5-5",
-			AnthropicModel::Sonnet5 => "claude-sonnet-5",
-			AnthropicModel::Haiku4_5 => "claude-haiku-4-5",
+			AnthropicModel::Sonnet5_5 => "claude-sonnet-5-5",
+			AnthropicModel::Haiku5_5 => "claude-haiku-5-5",
 		}
 	}
 }

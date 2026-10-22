@@ -21,7 +21,6 @@ pub struct Request {
 /// Mapping:
 /// - OpenAI: `reasoning.effort`
 /// - Anthropic: `output_config.effort` via adaptive thinking.
-///   Not supported on Claude Haiku 4.5 (ignored).
 /// - Google: `thinkingConfig.thinkingLevel`
 /// - OpenRouter: `reasoning.effort` (normalized across models; models
 ///   that don't reason ignore it)
@@ -106,15 +105,15 @@ pub enum Role {
 #[non_exhaustive]
 pub enum Model {
 	Gpt6Astra,
-	Gpt6Sol,
+	Gpt6_1Sol,
 	Gpt6Luna,
 
 	ClaudeFable5_1,
 	ClaudeOpus5_5,
-	ClaudeSonnet5,
-	ClaudeHaiku4_5,
+	ClaudeSonnet5_5,
+	ClaudeHaiku5_5,
 
-	GeminiPro3_1,
+	Gemini4Argon,
 	GeminiFlash3_8,
 	GeminiFlash3_5Lite,
 
@@ -134,13 +133,13 @@ pub enum Model {
 impl Model {
 	pub const ALL: &'static [Model] = &[
 		Model::Gpt6Astra,
-		Model::Gpt6Sol,
+		Model::Gpt6_1Sol,
 		Model::Gpt6Luna,
 		Model::ClaudeFable5_1,
 		Model::ClaudeOpus5_5,
-		Model::ClaudeSonnet5,
-		Model::ClaudeHaiku4_5,
-		Model::GeminiPro3_1,
+		Model::ClaudeSonnet5_5,
+		Model::ClaudeHaiku5_5,
+		Model::Gemini4Argon,
 		Model::GeminiFlash3_8,
 		Model::GeminiFlash3_5Lite,
 		Model::Grok4_7,
@@ -157,13 +156,13 @@ impl Model {
 	/// selected model.
 	pub const ALL_IMAGES: &'static [Model] = &[
 		Model::Gpt6Astra,
-		Model::Gpt6Sol,
+		Model::Gpt6_1Sol,
 		Model::Gpt6Luna,
 		Model::ClaudeFable5_1,
 		Model::ClaudeOpus5_5,
-		Model::ClaudeSonnet5,
-		Model::ClaudeHaiku4_5,
-		Model::GeminiPro3_1,
+		Model::ClaudeSonnet5_5,
+		Model::ClaudeHaiku5_5,
+		Model::Gemini4Argon,
 		Model::GeminiFlash3_8,
 		Model::GeminiFlash3_5Lite,
 		Model::Grok4_7,
@@ -183,14 +182,14 @@ impl Model {
 	/// [`Usage::fraction_used`].
 	pub fn context_window(&self) -> u32 {
 		match self {
-			Model::Gpt6Astra | Model::Gpt6Sol | Model::Gpt6Luna => 1_050_000,
+			Model::Gpt6Astra | Model::Gpt6_1Sol | Model::Gpt6Luna => 1_050_000,
 
 			Model::ClaudeFable5_1
 			| Model::ClaudeOpus5_5
-			| Model::ClaudeSonnet5 => 1_000_000,
-			Model::ClaudeHaiku4_5 => 200_000,
+			| Model::ClaudeSonnet5_5
+			| Model::ClaudeHaiku5_5 => 1_000_000,
 
-			Model::GeminiPro3_1
+			Model::Gemini4Argon
 			| Model::GeminiFlash3_8
 			| Model::GeminiFlash3_5Lite => 1_048_576,
 
@@ -342,7 +341,7 @@ impl Llms {
 		}
 
 		match &req.model {
-			Model::Gpt6Astra | Model::Gpt6Sol | Model::Gpt6Luna => {
+			Model::Gpt6Astra | Model::Gpt6_1Sol | Model::Gpt6Luna => {
 				let llm = self.inner.open_ai.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("OpenAI".into())
 				})?;
@@ -350,14 +349,14 @@ impl Llms {
 			}
 			Model::ClaudeFable5_1
 			| Model::ClaudeOpus5_5
-			| Model::ClaudeSonnet5
-			| Model::ClaudeHaiku4_5 => {
+			| Model::ClaudeSonnet5_5
+			| Model::ClaudeHaiku5_5 => {
 				let llm = self.inner.anthropic.as_ref().ok_or_else(|| {
 					LlmsError::LlmNotConfigured("Anthropic".into())
 				})?;
 				LlmProvider::request(llm, req).await.map(Into::into)
 			}
-			Model::GeminiPro3_1
+			Model::Gemini4Argon
 			| Model::GeminiFlash3_8
 			| Model::GeminiFlash3_5Lite => {
 				let llm = self.inner.google.as_ref().ok_or_else(|| {

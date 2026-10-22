@@ -9,15 +9,15 @@ supported:
 ```rust
 pub enum Model {
     Gpt6Astra,
-    Gpt6Sol,
+    Gpt6_1Sol,
     Gpt6Luna,
 
     ClaudeFable5_1,
     ClaudeOpus5_5,
-    ClaudeSonnet5,
-    ClaudeHaiku4_5,
+    ClaudeSonnet5_5,
+    ClaudeHaiku5_5,
 
-    GeminiPro3_1,
+    Gemini4Argon,
     GeminiFlash3_8,
     GeminiFlash3_5Lite,
 

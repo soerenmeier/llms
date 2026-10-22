@@ -100,7 +100,7 @@ impl LlmProvider for OpenAi {
 	) -> Result<Self::Stream, LlmsError> {
 		let model = match &req.model {
 			llms::Model::Gpt6Astra => OpenAiModel::Gpt6Astra,
-			llms::Model::Gpt6Sol => OpenAiModel::Gpt6Sol,
+			llms::Model::Gpt6_1Sol => OpenAiModel::Gpt6_1Sol,
 			llms::Model::Gpt6Luna => OpenAiModel::Gpt6Luna,
 			m => unreachable!("unsupported model: {m:?}"),
 		};
@@ -321,8 +321,8 @@ impl From<OpenAiError> for LlmsError {
 pub enum OpenAiModel {
 	#[serde(rename = "gpt-6-astra")]
 	Gpt6Astra,
-	#[serde(rename = "gpt-6-sol")]
-	Gpt6Sol,
+	#[serde(rename = "gpt-6.1-sol")]
+	Gpt6_1Sol,
 	#[serde(rename = "gpt-6-luna")]
 	Gpt6Luna,
 }
@@ -331,7 +331,7 @@ impl OpenAiModel {
 	pub fn as_str(&self) -> &'static str {
 		match self {
 			OpenAiModel::Gpt6Astra => "gpt-6-astra",
-			OpenAiModel::Gpt6Sol => "gpt-6-sol",
+			OpenAiModel::Gpt6_1Sol => "gpt-6.1-sol",
 			OpenAiModel::Gpt6Luna => "gpt-6-luna",
 		}
 	}
